@@ -108,6 +108,21 @@ npm exec -- wrangler secret put SUPABASE_SECRET_KEY
 npm exec -- wrangler secret put SUPABASE_SIGNING_JWK
 ```
 
+### 짧은 주소 `sjmoa.pages.dev`
+
+공유 링크·QR·프로젝터 안내는 `SHARE_URL`(`https://sjmoa.pages.dev`)로 표시한다. `apps/short-url/_worker.js`가 Cloudflare Pages(무료)에서 같은 경로와 쿼리를 `APP_URL`로 302 전달한다. 로그인·세션·권한은 모두 기존 주소에서 처리하고 짧은 주소는 GET/HEAD 전달만 한다. 초대 토큰(43자)은 추측 방지를 위해 줄이지 않으며, 말로 전할 때는 `sjmoa.pages.dev/join` + 10자리 참여 코드를 쓴다.
+
+최초 1회 일반 터미널에서 Pages 프로젝트를 만들고 배포한다. **짧은 주소를 먼저 배포한 뒤** `SHARE_URL`이 들어간 Worker를 배포해야 링크가 끊기지 않는다.
+
+```sh
+npx wrangler pages project create sjmoa --production-branch main
+npm run deploy:short
+curl -sI https://sjmoa.pages.dev/join | grep -i location   # https://samjeong-moa.samjeong-moa.workers.dev/join
+npm run deploy:free
+```
+
+`sjmoa` 이름이 이미 사용 중이면 생성이 실패한다. 다른 이름을 쓰면 `package.json`의 `deploy:short`와 `wrangler.jsonc`의 `SHARE_URL`을 함께 바꾼다. 서비스 주소가 바뀌면 `_worker.js`의 목적지도 바꿔야 하며 테스트가 `APP_URL`과의 불일치를 잡는다.
+
 ### 교사 Google 그룹 (선택)
 
 학생도 같은 도메인을 쓰므로 교사는 명단 또는 그룹 멤버십으로만 결정한다. 교사 그룹을 쓰려면 Workspace 최고 관리자가 다음을 설정한다.

@@ -19,6 +19,7 @@
     "cf:dry-run": "wrangler deploy --dry-run --outdir dist/worker",
     "cf:smoke": "node scripts/smoke-worker.mjs",
     "cf:whoami": "wrangler whoami",
+    "deploy:short": "wrangler pages deploy apps/short-url --project-name sjmoa --branch main",
     "cf:login": "wrangler login",
     "deploy:free": "node --import tsx scripts/deploy-free.mjs",
     "deploy:setup": "node --import tsx scripts/setup-free-deployment.ts",

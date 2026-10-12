@@ -18,6 +18,7 @@ npm run cf:types
 npm run check
 # 전용 Supabase DB와 계정/비밀값 설정 후
 npm run db:migrate:free
+npm run deploy:short   # 짧은 주소 sjmoa.pages.dev (최초 1회는 Pages 프로젝트 생성 필요)
 npm run deploy:free
 ```
 
