@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
-export function Dialog({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Dialog({ title, children, onClose, wide = false, variant = 'default' }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; variant?: 'default' | 'compose' | 'settings' }) {
   const element = useRef<HTMLDivElement>(null);
   const closeFromKeyboard = useEffectEvent(onClose);
   useEffect(() => {
@@ -23,5 +23,5 @@ export function Dialog({ title, children, onClose, wide = false }: { title: stri
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); if (previous?.isConnected) previous.focus(); };
   }, []);
-  return <div className="modal-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div ref={element} tabIndex={-1} className={`modal boards-dialog${wide ? ' boards-dialog-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}><div className="boards-dialog-heading"><h2>{title}</h2><button type="button" className="button ghost icon-button" aria-label="닫기" onClick={onClose}><X size={20} /></button></div>{children}</div></div>;
+  return <div className={`modal-backdrop board-dialog-backdrop-${variant}`} onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div ref={element} tabIndex={-1} className={`modal boards-dialog board-dialog-${variant}${wide ? ' boards-dialog-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}><div className="boards-dialog-heading"><h2>{title}</h2><button type="button" className="button ghost icon-button" aria-label="닫기" onClick={onClose}><X size={20} /></button></div>{children}</div></div>;
 }
