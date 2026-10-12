@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "es2022"
+    ],
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ],
+    "paths": {
+      "@contracts": [
+        "packages/contracts/index.ts"
+      ],
+      "@db": [
+        "packages/db/worker.ts"
+      ],
+      "@server/*": [
+        "packages/server/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "worker-configuration.d.ts"
+  ],
+  "exclude": [
+    "../../node_modules"
+  ]
+}

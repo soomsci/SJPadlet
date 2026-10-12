@@ -1,3 +1,4 @@
+import { setting } from '@server/common/runtime';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { OAuth2Client, CodeChallengeMethod, type TokenPayload } from 'google-auth-library';
 import { z } from 'zod';
@@ -10,15 +11,15 @@ const FLOW='samjeong_oauth';
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const random=()=>randomBytes(32).toString('base64url');
 const emails=(value:string|undefined)=>(value||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean);
-function appUrl(){return new URL(process.env.APP_URL||'http://localhost:3000');}
+function appUrl(){return new URL(setting('APP_URL')||'http://localhost:3000');}
 function cookie(name:string,value:string,seconds:number){return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${appUrl().protocol==='https:'?'; Secure':''}`;}
 function redirect(path:string,headers?:HeadersInit){return new Response(null,{status:302,headers:{Location:path,'Cache-Control':'no-store',...headers}});}
 export function safeReturnTo(value:string|null|undefined):string{
  if(!value || !value.startsWith('/') || value.startsWith('//') || /[\\\x00-\x20]/.test(value))return '/dashboard';
  const base=appUrl();try{const target=new URL(value,base);if(target.origin===base.origin && !target.pathname.startsWith('/api/'))return target.pathname+target.search+target.hash;}catch{}return '/dashboard';
 }
-export function googleConfigured(){try{return Boolean(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET&&(process.env.NODE_ENV!=='production'||appUrl().protocol==='https:'));}catch{return false;}}
-export function demoEnabled(req:Request){try{const hosts=['localhost','127.0.0.1'];const requestHost=req.headers.get('host');return process.env.NODE_ENV==='development'&&process.env.ENABLE_DEMO_LOGIN==='true'&&hosts.includes(appUrl().hostname)&&hosts.includes(new URL(req.url).hostname)&&Boolean(requestHost&&hosts.includes(new URL(`http://${requestHost}`).hostname));}catch{return false;}}
+export function googleConfigured(){try{return Boolean(setting('GOOGLE_CLIENT_ID')&&setting('GOOGLE_CLIENT_SECRET')&&(setting('NODE_ENV')!=='production'||appUrl().protocol==='https:'));}catch{return false;}}
+export function demoEnabled(req:Request){try{const hosts=['localhost','127.0.0.1'];const requestHost=req.headers.get('host');return setting('NODE_ENV')==='development'&&setting('ENABLE_DEMO_LOGIN')==='true'&&hosts.includes(appUrl().hostname)&&hosts.includes(new URL(req.url).hostname)&&Boolean(requestHost&&hosts.includes(new URL(`http://${requestHost}`).hostname));}catch{return false;}}
 export async function getPrincipal(req:Request):Promise<Principal|null>{
  let token:string|null;try{token=cookieValue(req,SESSION);}catch{return null;}
  if(!token||!/^[A-Za-z0-9_-]{43}$/.test(token))return null;
@@ -33,12 +34,12 @@ export async function createAnonymousSession(displayName:string):Promise<{princi
 export function googleRole(payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>,intent:string):Role{
  if(!payload.sub||!payload.email||payload.email_verified!==true)fail(403,'FORBIDDEN','인증된 Google 이메일 계정이 필요합니다.');
  const email=payload.email.toLowerCase();const exactSchool=email.split('@').length===2&&email.split('@')[1]==='samjeong.ms.kr'&&payload.hd==='samjeong.ms.kr';
- const admin=exactSchool&&emails(process.env.ADMIN_EMAILS).includes(email);
- const teacher=exactSchool&&(process.env.TEACHER_ADMISSION==='domain'||emails(process.env.TEACHER_EMAILS||process.env.TEACHER_ALLOWLIST).includes(email));
+ const admin=exactSchool&&emails(setting('ADMIN_EMAILS')).includes(email);
+ const teacher=exactSchool&&(setting('TEACHER_ADMISSION')==='domain'||emails(setting('TEACHER_EMAILS')||setting('TEACHER_ALLOWLIST')).includes(email));
  if(intent==='teacher'&&!admin&&!teacher)fail(403,'TEACHER_NOT_ADMITTED','학교 교사 명단에 등록된 계정으로 로그인해주세요. 학생은 학생 참여를 이용해주세요.');
  return admin?'admin':teacher?'teacher':'student';
 }
-function oauthClient(){if(!googleConfigured())fail(503,'AUTH_NOT_CONFIGURED','Google 로그인이 아직 설정되지 않았습니다.');return new OAuth2Client(process.env.GOOGLE_CLIENT_ID,process.env.GOOGLE_CLIENT_SECRET,new URL('/api/auth/google/callback',appUrl()).href);}
+function oauthClient(){if(!googleConfigured())fail(503,'AUTH_NOT_CONFIGURED','Google 로그인이 아직 설정되지 않았습니다.');return new OAuth2Client(setting('GOOGLE_CLIENT_ID'),setting('GOOGLE_CLIENT_SECRET'),new URL('/api/auth/google/callback',appUrl()).href);}
 interface Flow {id:string;state_hash:string;nonce:string;code_verifier:string;return_to:string;intent:string;previous_principal_id:string|null;expires_at:string;}
 export async function linkAnonymous(tx:Database,previous:Principal,target:Principal){
  const owned=await tx.one<Principal>('SELECT * FROM principals WHERE id=$1 FOR UPDATE',[previous.id]);
@@ -83,7 +84,7 @@ async function callback(req:Request){
  const previous=await getPrincipal(req);if(flow.intent==='link'&&(!previous||previous.id!==flow.previous_principal_id||previous.role!=='anonymous'))fail(403,'FORBIDDEN','기존 익명 참여 세션을 확인할 수 없습니다.');
  if(url.searchParams.has('error')||!code){const query=new URLSearchParams({error:'cancelled',returnTo:flow.return_to,...(flow.intent==='teacher'?{}:{student:'1'})});return redirect('/login?'+query,{'Set-Cookie':cookie(FLOW,'',0)});}
  const client=oauthClient();let payload:TokenPayload|undefined;
- try{const {tokens}=await client.getToken({code,codeVerifier:flow.code_verifier});if(!tokens.id_token)throw new Error('Missing identity token');const ticket=await client.verifyIdToken({idToken:tokens.id_token,audience:process.env.GOOGLE_CLIENT_ID});payload=ticket.getPayload();}catch{fail(403,'GOOGLE_AUTH_FAILED','Google 인증을 확인하지 못했습니다. 다시 로그인해주세요.');}
+ try{const {tokens}=await client.getToken({code,codeVerifier:flow.code_verifier});if(!tokens.id_token)throw new Error('Missing identity token');const ticket=await client.verifyIdToken({idToken:tokens.id_token,audience:setting('GOOGLE_CLIENT_ID')});payload=ticket.getPayload();}catch{fail(403,'GOOGLE_AUTH_FAILED','Google 인증을 확인하지 못했습니다. 다시 로그인해주세요.');}
  const nonce=(payload as TokenPayload&{nonce?:string})?.nonce;
  if(!payload||!nonce||nonce.length!==flow.nonce.length||!timingSafeEqual(Buffer.from(nonce),Buffer.from(flow.nonce)))fail(403,'INVALID_OAUTH_NONCE','Google 인증 요청이 일치하지 않습니다.');
  const role=googleRole(payload,flow.intent),email=payload.email!.toLowerCase();

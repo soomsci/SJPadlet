@@ -4,7 +4,7 @@
 
 학교 교사는 `@samjeong.ms.kr` Google 계정으로 수업 공간을 만들고, 학생은 Google 로그인 또는 익명으로 참여하는 웹서비스를 개발한다. 공유 가능한 활동 페이지에는 QR 공유를 제공한다.
 
-작업 전 `docs/PRD.md`, `docs/IMPLEMENTATION.md`, `docs/PARALLEL_PLAN.md`를 읽는다. 사용자의 최신 지시를 우선하며 요구사항 변경은 관련 문서에도 반영한다. 현재는 Next.js/TypeScript와 PostgreSQL 기반 P0 첫 통합 구현이다. 실행 명령은 README, 구현·검증 상태는 docs/STATUS.md를 확인한다.
+작업 전 `docs/PRD.md`, `docs/IMPLEMENTATION.md`, `docs/PARALLEL_PLAN.md`를 읽는다. 사용자의 최신 지시를 우선하며 요구사항 변경은 관련 문서에도 반영한다. 현재 기본 배포는 Vite 정적 화면 + Cloudflare Worker + Supabase PostgreSQL/Storage/Realtime이다. Next.js/PGlite는 별도 Node 개발 모드로 유지한다. 실행 명령은 README, 구현·검증 상태는 docs/STATUS.md, 배포 설정은 docs/DEPLOY_FREE.md를 확인한다.
 
 ## 제작 원칙
 
@@ -15,6 +15,10 @@
 - 모든 데이터·파일·내보내기·실시간 경로에서 공통 권한 검사를 사용한다. 학생에게 타인 대기 글·제출 답안·개인정보를 보내지 않는다.
 - QR은 접근 권한을 우회하지 않는다. 대상별 범위·만료·회수와 기존 참여 권한 해제를 함께 구현한다.
 - 운영 자격 증명·실제 학생 데이터를 코드·로그·fixture에 저장하지 않는다.
+- 무료 운영이 우선이다. 사용자 승인 없이 유료 플랜·도메인·리소스를 추가하지 않는다. Worker는 이미지 전용·1MB 업로드·학교 전체 800MB 한도를 강제한다. 일반 문서와 영상은 링크로 공유한다.
+- Hyperdrive는 쿼리 캐시를 끈 구성만 사용한다. 모든 브라우저용 Supabase 키로 앱 데이터와 Storage 객체를 직접 읽지 못하게 한다. Realtime에는 빈 알림만 전달하고 내용은 권한 API에서 가져온다.
+- Worker의 DB와 환경값은 요청별 컨텍스트로 관리한다. 모듈 전역의 DB 연결 재사용이나 process.env 변경을 하지 않는다. 운영에서 DDL을 자동 실행하지 않고 버전 마이그레이션을 적용한다.
+- Cloudflare 작업 시 프로젝트 Wrangler 버전을 사용한다. 이 환경에 내려받은 공식 스킬은 Git 제외 경로 `.tooling/cloudflare-skills`에 있으며, 존재하면 관련 SKILL.md를 읽고 적용한다. 새 체크아웃에서는 공식 설치 절차를 따른다. 전역 MCP 연결은 이 환경의 설정 쓰기 제한 때문에 미완료이므로 연결 여부를 확인한다.
 
 ## 병렬 작업
 

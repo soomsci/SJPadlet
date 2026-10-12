@@ -9,3 +9,8 @@ test-results/
 !.env.example
 .data/
 *.tsbuildinfo
+
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+.tooling/

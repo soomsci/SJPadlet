@@ -1,0 +1,15 @@
+# Copy to .dev.vars for Wrangler local development. Never commit real secrets.
+# For production, set secrets via Wrangler and edit non-secret vars in wrangler.jsonc.
+APP_URL=http://localhost:8787
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+TEACHER_EMAILS=
+ADMIN_EMAILS=
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_SECRET_KEY=
+# Private ES256 JWK, imported and activated in Supabase JWT Signing Keys.
+SUPABASE_SIGNING_JWK=
+FREE_TIER_MODE=true
+MEDIA_BACKEND=supabase
+SUPABASE_STORAGE_BUCKET=classroom-images

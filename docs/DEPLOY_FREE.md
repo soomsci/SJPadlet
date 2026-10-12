@@ -1,0 +1,115 @@
+# Cloudflare + Supabase 무료 시범 배포
+
+2026-10-12. 실제 계정과 비밀값은 아직 연결되지 않았다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+
+## 구조
+
+- `apps/free-web`: 기존 한국어 React 화면을 재사용하는 Vite 정적 앱. 로그인·대시보드·게시판·학생 참여·공유 QR·관리 화면을 제공한다. `/boards/:id`, `/s/:token` 직접 접근은 SPA fallback으로 처리한다.
+- `apps/worker`: 같은 주소의 `/api/*`만 실행하는 Cloudflare Worker. 다른 화면·JS·CSS는 정적 Assets에서 제공한다.
+- Supabase PostgreSQL: 기존 관계형 데이터와 권한·트랜잭션을 유지한다. Hyperdrive의 요청별 `pg.Client`로 연결한다. 앱 테이블은 RLS 활성화 및 anon/authenticated 권한 회수로 Data API 직접 접근을 차단한다.
+- Google 인증: 기존 Google OIDC state·nonce·PKCE 및 HttpOnly 서버 세션을 유지한다. **Supabase Auth 사용자로 옮긴 구현은 아니다.** Google Workspace `hd`·학교 이메일·교사 명단 검사를 유지하기 위한 선택이다. Supabase는 DB·Storage·Realtime을 담당한다.
+- Supabase Storage: `classroom-images` 비공개 버킷. 브라우저는 저장소 비밀키나 서명 다운로드 URL을 받지 않는다. Worker의 권한 검사 후 이미지 본문을 스트리밍한다.
+- Supabase Realtime: outbox INSERT 트리거가 빈 `invalidate` 알림만 private 채널에 보낸다. Worker는 현재 게시판 접근이 있는 사람에게 해당 채널용 ES256 JWT를 60초간 발급한다. JWT에 글·이메일·초대 토큰을 넣지 않는다. 브라우저는 45초마다 권한을 재확인하고 토큰을 갱신한다.
+
+일반적인 변경·회수 알림을 받으면 즉시 권한 API를 다시 읽는다. Supabase 채널 권한은 연결 동안 캐시되므로 회수된 연결이 토큰 만료까지 최대 60초간 빈 알림을 더 받을 수 있다. 게시글·파일·새 토큰 API는 회수 직후부터 거부한다. 알림을 놓친 화면은 45초 주기 및 재연결 때 다시 확인한다. 기존 Node 개발 서버의 1초 SSE 재검사와 구분한다.
+
+## 무료 한도와 앱 한도
+
+|항목|사업자 무료 한도|현재 앱 운영 방식|
+|---|---|---|
+|Cloudflare 정적 파일|정적 요청 무료|SSR 없이 정적 화면 제공|
+|Workers API|하루 100,000 요청, 요청당 CPU 10ms|한두 학급 시범 운영 후 실측|
+|Hyperdrive|하루 100,000 DB 쿼리|API 한 번에 여러 쿼리 사용; 요청 수와 별도 계측|
+|Supabase DB|500MB|텍스트·권한·메타데이터 저장; 정기 백업·정리 필요|
+|Supabase 파일|1GB|학교 800MB, 교사 200MB, 게시판 100MB|
+|Supabase 전송량|일반 egress 월 5GB, cached egress 별도 5GB|비공개 이미지 전송량을 대시보드에서 확인|
+|Realtime|동시 200 연결, 월 200만 메시지|빈 알림과 재조회, 짧은 묶음 처리|
+
+이미지는 브라우저에서 긴 변 1600px 이하 JPEG로 다시 인코딩한다. 원본은 최대 20MB·4천만 픽셀, 최종 업로드는 1MB 이하·글당 5개다. 서버와 버킷도 1MB 한도를 검사한다. 서버가 허용하는 형식은 JPG/PNG/WebP뿐이며 SVG·GIF·PDF·Office·영상은 첨부하지 않는다. 문서와 영상은 사용자가 접근 가능한 Google Drive 등의 링크로 공유한다. 링크 대상의 공유 권한은 해당 서비스에서 설정한다.
+
+무료 이미지 경로는 확장자와 파일 시그니처 검증을 하며 **백신 검사 완료를 의미하지 않는다.** 일반 문서 업로드용 ClamAV는 무료 구성에 배포하지 않는다. 이미지 응답에는 고정 MIME, nosniff, sandbox 및 no-store를 적용한다.
+
+저장 용량 한도는 API가 트랜잭션 잠금으로 검사한다. 전송량·DB 크기·실시간 메시지·Workers CPU를 모두 앱에서 강제 제한하는 구현은 아니다. Free 플랜에서 한도를 초과하면 서비스가 제한될 수 있으며 자동 유료 전환을 전제로 하지 않는다. 두 사업자의 계정을 Free 상태로 유지한다. 파일 삭제·고아 파일 자동 정리 및 자동 백업 예약은 후속 작업이다. 취소한 첨부도 정리 전까지 용량에 포함한다.
+
+[Cloudflare 정적 파일](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/), [Workers 요금](https://developers.cloudflare.com/workers/platform/pricing/), [Hyperdrive 무료 한도](https://developers.cloudflare.com/hyperdrive/platform/pricing/), [Supabase 무료 플랜](https://supabase.com/pricing).
+
+## 1. 계정과 전용 프로젝트
+
+Cloudflare와 Supabase의 학교 운영용 계정/프로젝트를 사용한다. Supabase는 이 앱 전용 Free 프로젝트로 만들고, 한국과 가까운 제공 리전을 선택한다. 기존 다른 앱의 Supabase 프로젝트에 마이그레이션을 실행하지 않는다. 기존 Storage/Realtime 정책이 발견되면 SQL이 중단되도록 했다.
+
+Cloudflare Account ID와 `workers.dev` 하위 도메인, Supabase Project URL과 publishable key를 확인한다. secret key·DB 암호·Google secret·서명용 개인키는 채팅이나 Git에 넣지 않는다.
+
+## 2. Cloudflare 에이전트 연결 상태
+
+사용자가 지정한 [공식 설정 지침](https://developers.cloudflare.com/agent-setup/prompt.md)을 공식 저장소의 원문과 함께 확인했다. 이 환경에서:
+
+- Cloudflare 공식 스킬 17개를 `.tooling/cloudflare-skills`에 내려받아 참고용으로 보관했다. Git에서 제외된다. 원본 `cloudflare/skills` 커밋은 `c430dd965cea3a8faf0ef035e3b3d73b38518081`이다. 전역 스킬 자동 등록 완료를 뜻하지 않는다.
+- 프로젝트 Wrangler 4.149.0과 바인딩 타입을 설치·생성했다.
+- 공식 전역 스킬 설치 명령은 실행했지만 완료되지 않았다.
+- `codex mcp add cloudflare --url https://mcp.cloudflare.com/mcp`는 `~/.codex/config.toml` 쓰기 권한으로 실패했다. 이후 `codex mcp login cloudflare`는 등록된 서버가 없어서 실패했다.
+- Wrangler 로그인은 OAuth 콜백 포트 `::1:8976`의 `listen EPERM`으로 실패했다. 실제 계정 OAuth 연결은 완료되지 않았다.
+- 선택 사항인 베타 `cf` CLI는 설치하지 않았다.
+
+권한이 허용되는 실행 환경에서 같은 공식 절차를 이어갈 수 있도록 `npm run cf:agent:setup` 스크립트를 준비했다. 전역 등록·로그인 성공 후 Codex를 재시작해야 MCP 도구가 로드된다. 현재 연결되지 않은 MCP를 연결된 것처럼 사용하지 않는다.
+
+Wrangler 검증 시 홈 디렉터리 로그 쓰기를 피하기 위해 `.tooling`을 `XDG_CONFIG_HOME`으로, `/private/tmp/padlet-wrangler.log`를 로그 경로로 사용했다. 이때의 프로필은 기본 Wrangler 프로필과 별개다. 계정 연결 후 사용할 프로필 위치를 일관되게 유지한다.
+
+## 3. Supabase DB 적용
+
+DB 접속 주소는 Supabase Connect에서 얻는다. DB 마이그레이션에만 쓸 `DATABASE_URL`을 Git에서 제외된 `.env.free`에 저장한다. 인증서 검증을 끄지 않는다. Node에서 전용 DB에 접속 가능한 환경에서 실행한다.
+
+```sh
+npm ci
+npm run db:migrate:free
+```
+
+생성된 `supabase/migrations/202610120001_free_hosting.sql`은 앱 테이블·권한 회수·비공개 버킷·Realtime 정책과 트리거를 포함한다. 스크립트는 적용 버전과 체크섬을 기록하고 한 트랜잭션으로 적용한다. 재실행은 같은 체크섬이면 건너뛴다. 이미 적용한 파일을 고치지 말고 후속 버전을 추가한다. 이 초기 파일은 `npm run db:generate:free`로 스키마와 `supabase/security.sql`에서 생성한다.
+
+## 4. Hyperdrive 연결
+
+Cloudflare에서 Supabase DB를 가리키는 Hyperdrive를 만든다. 연결 정보는 대시보드의 비밀 입력란을 사용한다. **Query caching은 Disabled로 설정해야 한다.** 캐시가 켜지면 세션·공유 회수·승인 상태가 오래된 결과로 반환될 수 있다. `deploy:free`가 원격 Hyperdrive 설정을 조회해 캐시 비활성 상태를 확인한다.
+
+Hyperdrive는 연결 풀만 사용한다. [Supabase 연결 가이드](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/), [권한 조회와 캐시 설정](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/).
+
+`wrangler.jsonc`에 실제 `account_id`, Hyperdrive ID, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, 교사/관리자 명단을 넣는다. 비밀키나 DB 암호는 이 파일에 넣지 않는다. 현재 설정은 실제 리소스 대신 placeholder이며 자동 리소스 생성은 하지 않는다.
+
+## 5. 실시간 서명 키와 Worker secrets
+
+```sh
+npm run cf:realtime-key
+```
+
+Git에서 제외된 `.data/realtime-signing.jwk`를 0600 권한으로 생성하며 기존 파일을 덮어쓰지 않는다. 이 개인키를 Supabase JWT Signing Keys에서 import한 뒤 activate/rotate한다. 같은 `kid`와 개인키가 Worker에서도 사용되어야 한다. 키 변경 전 이미 사용하는 프로젝트인지 확인한다. [공식 키 가져오기 절차](https://supabase.com/docs/guides/auth/signing-keys).
+
+프로젝트 Wrangler를 이용해 다음 값을 비밀 입력으로 설정한다. 명령 인수에 값 자체를 넣지 않는다.
+
+```sh
+npm exec -- wrangler secret put GOOGLE_CLIENT_ID
+npm exec -- wrangler secret put GOOGLE_CLIENT_SECRET
+npm exec -- wrangler secret put SUPABASE_SECRET_KEY
+npm exec -- wrangler secret put SUPABASE_SIGNING_JWK
+```
+
+Google 웹 OAuth 클라이언트의 리디렉션 주소는 `<APP_URL>/api/auth/google/callback`이다. `TEACHER_ADMISSION=allowlist`와 실제 교사 명단을 유지한다. `ADMIN_EMAILS` 계정도 `@samjeong.ms.kr`와 Google Workspace `hd`가 검증되어야 한다. 학생 로그인은 교사 도메인과 별도이며, 유효한 초대를 요구한다.
+
+Supabase Realtime 설정은 private 채널만 허용하는 옵션을 활성화한다. 메시지 RLS는 서명된 `moa_topic`과 요청 채널을 일치시키며, 앱/Storage 직접 읽기 권한은 JWT에 부여하지 않는다. [Realtime 권한 캐시와 만료](https://supabase.com/docs/guides/realtime/authorization).
+
+## 6. 검증과 배포
+
+```sh
+npm run cf:types
+npm run check
+npm run deploy:free
+```
+
+`deploy:free`는 placeholder와 필수 설정을 먼저 검사한다. 이어 전체 검사, 원격 Hyperdrive 캐시 설정, 필수 secret 이름을 확인한 뒤 정적 화면과 Worker를 배포한다. 원격 설정 조회 결과 전체나 비밀값을 로그에 출력하지 않는다. 실제 값이 없는 지금 실행하면 배포 전에 중단된다. `cf:dry-run` 성공은 패키지 검증이며 원격 DB·Storage·Realtime·실제 로그인 검증은 아니다.
+
+`check`에 포함된 `cf:smoke`는 생성된 번들을 실제 workerd 엔진에서 불러와 상태 API·정적 파일 라우팅·무료 업로드 제한·교차 출처 요청 차단을 검사한다. 소켓을 열거나 원격 DB에 연결하지 않는다. 브라우저 및 외부 서비스 통합 검증과는 별개다.
+
+배포 후 `GET /api/health`, 학교 교사 로그인·일반 학생 Google 로그인·익명 QR 참여·승인 전 답안 비공개·사진 표시·댓글·공유 회수·비공개 다운로드 거부를 확인한다. 로그아웃·회수·교사 정지 후 열린 화면도 확인한다. 휴대전화 QR·인쇄·키보드·학교망 40명 부하와 Worker CPU·쿼리·전송량을 실측한 뒤 수업에 사용한다. 지금은 실환경 수업 검증을 완료하지 않았다.
+
+## 백업과 휴면
+
+Supabase Free에는 자동 백업이 없다. 직접 DB 접속 환경에서 기존 `db:backup`/`db:restore` 스크립트를 사용할 수 있지만 업로드 이미지 원본은 버킷에서 별도 백업해야 한다. DB 백업만으로 이미지가 복구되지는 않는다. 실제 복원은 운영 데이터 교체이므로 대상을 확인한다.
+
+Supabase Free는 1주일간 비활성 시 일시 중지될 수 있다. 방학 후 수업 전에 프로젝트 상태를 확인하고 필요하면 재개한다. 가짜 트래픽으로 휴면 정책을 우회하는 작업은 추가하지 않았다.

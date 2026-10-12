@@ -1,3 +1,4 @@
+import { setting } from '@server/common/runtime';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Board, Share } from '@contracts';
@@ -56,7 +57,7 @@ export async function handleShares(req:Request,segments:string[]):Promise<Respon
    const shareId=id();const expires=new Date(Date.now()+data.expires_hours*3600000).toISOString();
    await tx.run('INSERT INTO share_links(id,board_id,target_type,target_id,scope,token_hash,code_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[shareId,board.id,data.target_type,data.target_id,data.scope,hash(token),hash(code),expires,now()]);
    await audit(tx,principal.id,'share.create',shareId);
-   const origin=new URL(process.env.APP_URL||'http://localhost:3000').origin;
+   const origin=new URL(setting('APP_URL')||'http://localhost:3000').origin;
    return {id:shareId,url:origin+'/s/'+token,code,expires_at:expires,target_type:data.target_type,target_id:data.target_id};
   });return json(result,201);
  }

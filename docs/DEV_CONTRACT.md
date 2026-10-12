@@ -1,4 +1,6 @@
-# 실행 계약 v1
+# 실행 계약 v2
+
+무료 운영 진입점은 `apps/worker/src/index.ts`, 정적 UI 진입점은 `apps/free-web/src/main.tsx`다. `packages/server/dispatch.ts`가 공통 HTTP dispatcher이며 Next.js 라우트도 이를 호출한다. Worker 번들에서는 `@db`를 `packages/db/worker.ts`로 치환하여 PGlite·자동 DDL·전역 연결을 포함하지 않는다. `setting(name)`으로 요청별 운영 설정을 읽는다. 무료 첨부 정책과 Supabase private Realtime 계약은 DEPLOY_FREE.md를 따른다.
 
 공통 API는 `packages/contracts/index.ts`, 스키마는 `packages/db/schema.ts`다. DB는 `await getDb()`로 얻고 `all<T>`, `one<T>`, `run`, `transaction(fn)`을 사용한다. SQL은 PostgreSQL `$1` 매개변수 방식이다. id/now/emit/audit 헬퍼가 있다. 개발은 PGlite, 운영은 DATABASE_URL PostgreSQL이다.
 
