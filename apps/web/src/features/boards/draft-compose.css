@@ -3,3 +3,6 @@
 @media(max-width:560px){.draft-status{gap:6px}.draft-compose-actions>.ghost{margin-right:0}.draft-compose-actions .button{flex:1;white-space:nowrap;padding-inline:10px}}
 .draft-thumb{width:40px;height:40px;object-fit:cover;border-radius:8px;flex-shrink:0}
 @media(pointer:fine){.draft-camera{display:none!important}}
+.draft-link{display:flex;align-items:center;gap:2px}.draft-link:focus-within{border-color:#789554}
+.draft-link>span{color:#7d8777;flex-shrink:0;user-select:none}
+.draft-link>input{flex:1;min-width:0;border:0;outline:0;padding:0;background:transparent;color:inherit;font:inherit}
