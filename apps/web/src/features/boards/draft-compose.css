@@ -1,3 +1,5 @@
 .draft-status{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted,#68756a)}
 .draft-status .button{font-size:12px;white-space:nowrap}.draft-compose-actions{flex-wrap:wrap}.draft-compose-actions>.ghost{margin-right:auto}
 @media(max-width:560px){.draft-status{gap:6px}.draft-compose-actions>.ghost{margin-right:0}.draft-compose-actions .button{flex:1;white-space:nowrap;padding-inline:10px}}
+.draft-thumb{width:40px;height:40px;object-fit:cover;border-radius:8px;flex-shrink:0}
+@media(pointer:fine){.draft-camera{display:none!important}}

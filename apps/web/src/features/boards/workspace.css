@@ -150,3 +150,15 @@ body:has(.boards-dashboard[data-library]) .site-footer { display: none; }
 .boards-deleted-sections li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 @media(max-width:640px) { .board-drafts { left: 16px; bottom: 84px; max-width: calc(100% - 32px); } }
 @media print { .board-drafts { display: none; } }
+
+/* Teacher drag-and-drop ordering (move buttons remain the keyboard path). */
+.boards-workspace[data-ready] [draggable="true"] { cursor: grab; }
+.boards-workspace[data-dragging] .boards-column { outline: 2px dashed transparent; outline-offset: 4px; border-radius: 16px; transition: outline-color .15s; }
+.boards-workspace[data-dragging] .boards-column.drop-target { outline-color: #315b43; }
+
+.board-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.board-activity button { width: 100%; display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; font: inherit; }
+.board-activity button:hover, .board-activity button:focus-visible { background: #eef3ec; }
+.board-activity strong { font-size: 14px; }
+.board-activity span { color: #354b3b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-activity time { font-size: 12px; color: #68756a; }

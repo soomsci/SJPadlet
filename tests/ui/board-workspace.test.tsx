@@ -114,3 +114,55 @@ it('opens presentation mode for a single section from the section menu', async (
   const presentation = screen.getByRole('dialog', { name: '게시판 발표' });
   expect((within(presentation).getByRole('combobox', { name: '발표 범위' }) as HTMLSelectElement).value).toBe('section-2');
 });
+
+const dataTransfer = { setData: () => undefined, effectAllowed: 'move' };
+const columnOf = async (name: string | RegExp) => (await screen.findByRole('heading', { name })).closest('section')!;
+
+it('reorders posts within a section by drag with the full section order and board version', async () => {
+  const extra = { ...boardFixture.posts[0], id: 'post-extra', title: '추가 글' };
+  const view = { ...boardFixture, posts: [...boardFixture.posts, extra] };
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => new Response(JSON.stringify({ data: path.endsWith('/drafts') ? [] : view }))));
+  render(<BoardWorkspace boardId="preview-board" />);
+  const column = await columnOf('1조 2');
+  const [first, second] = Array.from(column.querySelectorAll('article'));
+  fireEvent.dragStart(second, { dataTransfer });
+  fireEvent.dragOver(first, { dataTransfer });
+  fireEvent.drop(first, { dataTransfer });
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/boards/preview-board/posts/reorder', expect.objectContaining({ method: 'POST', body: JSON.stringify({ version: boardFixture.board.version, section_id: 'section-1', post_ids: ['post-extra', 'post-0'] }) })));
+});
+
+it('moves a post to another section by drag before the target card', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  const source = (await columnOf('1조 1')).querySelector('article')!;
+  const target = (await columnOf('2조 1')).querySelector('article')!;
+  fireEvent.dragStart(source, { dataTransfer });
+  fireEvent.drop(target, { dataTransfer });
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/posts/post-0', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ version: 1, section_id: 'section-2', rank: 99 }) })));
+});
+
+it('reorders sections by dragging a section heading', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  const third = await columnOf('3조 1');
+  fireEvent.dragStart(third.querySelector('.boards-section-heading')!, { dataTransfer });
+  fireEvent.drop(await columnOf('1조 1'), { dataTransfer });
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/boards/preview-board/sections/reorder', expect.objectContaining({ body: JSON.stringify({ version: boardFixture.board.version, section_ids: ['section-3', 'section-1', 'section-2', 'section-4'] }) })));
+});
+
+it('does not make cards draggable for students', async () => {
+  const studentView = { ...boardFixture, principal: { id: 'student', role: 'student', display_name: '예시 학생' }, can_manage: false };
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => new Response(JSON.stringify({ data: path.endsWith('/drafts') ? [] : studentView }))));
+  render(<BoardWorkspace boardId="preview-board" />);
+  const column = await columnOf(/^1조/);
+  expect(column.querySelector('[draggable="true"]')).toBeNull();
+});
+
+it('lists recent posts and comments newest first in the activity panel', async () => {
+  const view = { ...boardFixture, posts: boardFixture.posts.map((post, n) => ({ ...post, created_at: `2026-10-12T0${n}:00:00Z`, comments: n === 0 ? [{ id: 'c1', body: '좋아요', author_name: '댓글 작성자', is_mine: false, created_at: '2026-10-12T09:00:00Z' }] : [] })) };
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => new Response(JSON.stringify({ data: path.endsWith('/drafts') ? [] : view }))));
+  render(<BoardWorkspace boardId="preview-board" />);
+  fireEvent.click(await screen.findByRole('button', { name: '최근 활동' }));
+  const items = within(screen.getByRole('dialog', { name: '최근 활동' })).getAllByRole('listitem');
+  expect(items).toHaveLength(5);
+  expect(items[0].textContent).toContain('댓글 작성자님이 댓글을 남겼어요');
+  expect(items[1].textContent).toContain(boardFixture.posts[3].title);
+});
