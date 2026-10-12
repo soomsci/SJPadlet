@@ -204,7 +204,7 @@ export function BoardWorkspace({ boardId, postId, sectionId, submission = false 
       <h1>{view.board.title}</h1>
       {view.board.description && <p>{view.board.description}</p>}
     </header>
-    {error && <Notice>{error}</Notice>}{!view.can_manage && view.principal.role === 'anonymous' && <p className="boards-participation-note"><ShieldCheck size={16} />익명으로 참여 중이에요. 같은 브라우저에서 내 글을 수정할 수 있어요. 브라우저 데이터를 지우면 수정 권한을 복구할 수 없어요.</p>}
+    {error && <Notice>{error}</Notice>}{!view.can_manage && view.principal.role === 'anonymous' && <p className="boards-participation-note"><ShieldCheck size={16} />익명으로 참여 중이에요. 내 글은 오늘 이 브라우저에서 수정할 수 있어요. 함께 쓰는 기기라면 마친 뒤 로그아웃해주세요.</p>}
     {!view.can_manage && view.board.state !== 'open' && <p className="notice">참여가 종료되었어요. 작성한 생각은 계속 확인할 수 있어요.</p>}
     {(view.submission_only || submission) && <p className="boards-participation-note"><LockKeyhole size={16} />내가 작성한 제출만 보여요. 선생님은 전체 답안을 확인할 수 있어요.</p>}
 

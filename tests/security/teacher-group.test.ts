@@ -66,6 +66,13 @@ describe('teacher Google group admission', () => {
     expect(await googleAdmissionRole(db, payload, 'student', member)).toBe('student');
   });
 
+  it('keeps a stored teacher role when the lookup fails on a student-flow login', async () => {
+    const payload = claims('group.teacher@samjeong.ms.kr');
+    expect(await googleAdmissionRole(db, payload, 'student', null, 'teacher')).toBe('teacher');
+    expect(await googleAdmissionRole(db, payload, 'teacher', null, 'teacher')).toBe('teacher');
+    expect(await googleAdmissionRole(db, payload, 'student', false, 'teacher')).toBe('student');
+  });
+
   it('does not call Google for non-school claims, env-listed teachers, or when no group is configured', async () => {
     for (const payload of [{ ...claims('group.teacher@samjeong.ms.kr'), hd: undefined }, { ...claims('group.teacher@samjeong.ms.kr'), email_verified: false }, claims('listed@samjeong.ms.kr'), claims('admin@samjeong.ms.kr')]) expect(await teacherGroupMembership(payload)).toBeUndefined();
     vi.stubEnv('TEACHER_GROUP_EMAIL', '');

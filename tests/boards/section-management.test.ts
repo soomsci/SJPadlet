@@ -22,7 +22,7 @@ beforeEach(async()=>{
  let view=await send('boards',{title:'합성 섹션 수업',description:'실제 학생 데이터 없음',format:'columns',moderation:true});boardId=view.board.id;first=view.sections[0].id;
  view=await send('boards/'+boardId,{version:view.board.version,state:'open'},teacherCookie,'PATCH');view=await send('boards/'+boardId+'/sections',{version:view.board.version,title:'두 번째'});second=view.sections.find(section=>section.id!==first)!.id;
  const foreignBoard=await send('boards',{title:'다른 수업'});foreign=foreignBoard.sections[0].id;
- const share=await shareSend<ShareResult>('shares',{board_id:boardId,target_type:'board',target_id:boardId,scope:'write'});await shareSend('join',{token:share.url.split('/').at(-1),mode:'anonymous'},studentCookie);
+ const share=await shareSend<ShareResult>('shares',{board_id:boardId,target_type:'board',target_id:boardId,scope:'write'});await shareSend('join',{token:share.url.split('/').at(-1),mode:'anonymous',continue:true},studentCookie);
 });
 describe('teacher section insertion and optimistic updates',()=>{
  it('inserts before and after a referenced section and retains existing section identities',async()=>{
@@ -42,15 +42,15 @@ describe('section deletion, ownership and invitation revocation',()=>{
  it('moves every post and draft while preserving statuses, revokes old invitations and keeps them revoked after restore',async()=>{
   const statuses:Post['status'][]=['published','pending','rejected','hidden','deleted'];for(const status of statuses)await addPost(first,status);
   const draftId=id();await db.run('INSERT INTO post_drafts(id,board_id,principal_id,section_id,title,body,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$7)',[draftId,boardId,student.id,first,'합성 초안','저장된 본문',now()]);
-  const restricted=await createAnonymousSession('섹션 전용 합성 학생');const invite=await shareSend<ShareResult>('shares',{board_id:boardId,target_type:'section',target_id:first,scope:'write'});const token=invite.url.split('/').at(-1);await shareSend('join',{token,mode:'anonymous'},restricted.cookie);expect((await boardAccess(db,restricted.principal,boardId)).can_write).toBe(true);
+  const restricted=await createAnonymousSession('섹션 전용 합성 학생');const invite=await shareSend<ShareResult>('shares',{board_id:boardId,target_type:'section',target_id:first,scope:'write'});const token=invite.url.split('/').at(-1);await shareSend('join',{token,mode:'anonymous',continue:true},restricted.cookie);expect((await boardAccess(db,restricted.principal,boardId)).can_write).toBe(true);
   let view=await send('boards/'+boardId+'/sections/'+first,{version:await version(),move_to:second},teacherCookie,'DELETE');expect(view.sections.map(section=>section.id)).toEqual([second]);expect(view.deleted_sections?.map(section=>section.id)).toEqual([first]);
   const posts=await db.all<Post>('SELECT * FROM posts WHERE board_id=$1',[boardId]);expect(posts).toHaveLength(statuses.length);expect(posts.map(post=>post.status).sort()).toEqual([...statuses].sort());for(const post of posts){expect(post.section_id).toBe(second);expect(post.author_id).toBe(student.id);expect(post.body).toBe('보존할 한글 본문');expect(post.version).toBe(2);}
   expect(await db.one('SELECT principal_id,section_id,body,version FROM post_drafts WHERE id=$1',[draftId])).toMatchObject({principal_id:student.id,section_id:second,body:'저장된 본문',version:2});
-  await expect(boardAccess(db,restricted.principal,boardId)).rejects.toMatchObject({code:'NOT_FOUND'});await expect(shareSend('join',{token,mode:'anonymous'},restricted.cookie)).rejects.toMatchObject({code:'SHARE_EXPIRED'});
+  await expect(boardAccess(db,restricted.principal,boardId)).rejects.toMatchObject({code:'NOT_FOUND'});await expect(shareSend('join',{token,mode:'anonymous',continue:true},restricted.cookie)).rejects.toMatchObject({code:'SHARE_EXPIRED'});
   const studentView=await send('boards/'+boardId,undefined,studentCookie);expect(studentView).not.toHaveProperty('deleted_sections');expect(studentView.sections.map(section=>section.id)).toEqual([second]);
   view=await send('boards/'+boardId+'/sections/'+first+'/restore',{version:view.board.version});expect(view.sections.map(section=>section.id)).toEqual([second,first]);expect(view.deleted_sections).toHaveLength(0);
   expect((await db.all<Post>('SELECT * FROM posts WHERE board_id=$1',[boardId])).every(post=>post.section_id===second)).toBe(true);expect(await db.one('SELECT section_id FROM post_drafts WHERE id=$1',[draftId])).toMatchObject({section_id:second});
-  await expect(shareSend('join',{token,mode:'anonymous'},restricted.cookie)).rejects.toMatchObject({code:'SHARE_EXPIRED'});await expect(boardAccess(db,restricted.principal,boardId)).rejects.toMatchObject({code:'NOT_FOUND'});
+  await expect(shareSend('join',{token,mode:'anonymous',continue:true},restricted.cookie)).rejects.toMatchObject({code:'SHARE_EXPIRED'});await expect(boardAccess(db,restricted.principal,boardId)).rejects.toMatchObject({code:'NOT_FOUND'});
  });
  it('supports moving into unclassified and rejects writes into a deleted section',async()=>{
   const postId=await addPost();const view=await send('boards/'+boardId+'/sections/'+first,{version:await version(),move_to:null},teacherCookie,'DELETE');expect(await db.one('SELECT section_id,status FROM posts WHERE id=$1',[postId])).toMatchObject({section_id:null,status:'published'});

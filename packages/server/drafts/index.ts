@@ -115,6 +115,9 @@ export async function handleDrafts(req: Request, segments: string[]): Promise<Re
       if (data.version !== 0) fail(409, 'CONFLICT', '초안이 삭제되었거나 변경되었습니다.');
       const count = await tx.one<{ total: string }>('SELECT COUNT(*) AS total FROM post_drafts WHERE principal_id=$1 AND updated_at>=$2', [p.id, cutoff()]);
       if (Number(count?.total ?? 0) >= 20) fail(409, 'DRAFT_LIMIT', '초안은 20개까지 보관합니다. 사용하지 않는 초안을 삭제해주세요.');
+      // Bounds storage when many anonymous sessions join one board; the board row is locked above.
+      const onBoard = await tx.one<{ total: string }>('SELECT COUNT(*) AS total FROM post_drafts WHERE board_id=$1 AND updated_at>=$2', [boardId, cutoff()]);
+      if (Number(onBoard?.total ?? 0) >= 1000) fail(409, 'DRAFT_LIMIT', '이 게시판에 보관된 초안이 너무 많습니다. 글을 게시하거나 잠시 후 다시 시도해주세요.');
     }
     await attachments(tx, p, boardId, data);
     const timestamp = now();

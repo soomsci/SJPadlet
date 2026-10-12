@@ -28,6 +28,13 @@ beforeEach(async () => {
  await db.run("UPDATE boards SET state='open' WHERE id=$1",[board.board.id]); await grant(student); await grant(other);
 });
 describe('private server drafts', () => {
+ it('caps retained drafts per board so mass anonymous joins cannot fill the database', async () => {
+  const stamp=now(); const owners=Array.from({length:50},()=>id());
+  await db.run("INSERT INTO principals(id,role,display_name,created_at) SELECT unnest($1::text[]),'anonymous','합성 대량',$2",[owners,stamp]);
+  await db.run("INSERT INTO post_drafts(id,board_id,principal_id,created_at,updated_at) SELECT gen_random_uuid()::text,$1,owner,$2,$2 FROM unnest($3::text[]) AS owner, generate_series(1,20)",[board.board.id,stamp,owners]);
+  await expect(call(path(id()),payload())).rejects.toMatchObject({code:'DRAFT_LIMIT'});
+  await db.run('DELETE FROM post_drafts WHERE board_id=$1',[board.board.id]);
+ });
  it('restores anonymous drafts only for their owner and does not emit content or events', async () => {
   const draftId=id(); const saved=await call(path(draftId),payload()); expect(saved.version).toBe(1); expect(saved.principal_id).toBe(student.id);
   expect(await call<PostDraft[]>(path())).toHaveLength(1); expect(await call<PostDraft[]>(path(),undefined,otherCookie)).toEqual([]); expect(await call<PostDraft[]>(path(),undefined,teacherCookie)).toEqual([]);
