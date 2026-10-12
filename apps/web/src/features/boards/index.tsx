@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type CSSProperties, type HTMLAttributes } from 'react';
 import { Activity, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Check, CheckCheck, ChevronDown, Columns3, Copy, Download, ExternalLink, FileText, Grid2X2, Heart, LayoutDashboard, LockKeyhole, MessageCircle, MonitorPlay, MoreHorizontal, Plus, Printer, QrCode, RotateCcw, Search, Settings2, Share2, ShieldCheck, Star, Trash2, Users } from 'lucide-react';
-import type { Board, BoardFormat, BoardView, PostDraft, PostView, Section, Share } from '@contracts';
+import type { Board, BoardActivity, BoardFormat, BoardView, PostDraft, PostView, Section, Share } from '@contracts';
 import { api, EmptyState, Notice, Spinner } from '@ui';
 import { ShareDialog } from '@features/share';
 import { ParticipantsDialog } from '@features/participants';
@@ -11,6 +11,7 @@ import { Dialog } from './dialog';
 import { BoardChrome } from './chrome';
 import { DraftCompose } from './draft-compose';
 import { Presentation } from './presentation';
+import { MembersPanel } from './members';
 import './workspace.css';
 import { watchBoard } from '@features/live';
 
@@ -43,15 +44,15 @@ function CreateBoard({ onClose }: { onClose: () => void }) {
   </form></Dialog>;
 }
 
-type ListBoard = Board & { favorite: boolean; post_count: number };
+type ListBoard = Board & { favorite: boolean; post_count: number; my_role?: 'owner' | 'editor' | 'reader'; owner_name?: string };
 type BoardList = { boards: ListBoard[]; next_cursor: string | null };
 export function Dashboard() {
-  const [data, setData] = useState<BoardList | null>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState<'all' | 'favorite' | 'trash'>('all');
+  const [data, setData] = useState<BoardList | null>(null), [query, setQuery] = useState(''), [filter, setFilter] = useState<'all' | 'favorite' | 'shared' | 'trash'>('all');
   const [create, setCreate] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState('');
   const [search, setSearch] = useState('');
   useEffect(() => { const timer = setTimeout(() => setSearch(query), 250); return () => clearTimeout(timer); }, [query]);
-  const load = useCallback(async (cursor?: string) => { const result = await api<BoardList>(`/api/boards?q=${encodeURIComponent(search)}&trash=${filter === 'trash'}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); setData(current => cursor && current ? { boards: [...current.boards, ...result.boards], next_cursor: result.next_cursor } : result); }, [search, filter]);
-  useEffect(() => { let active = true; setError(''); setData(null); api<BoardList>(`/api/boards?q=${encodeURIComponent(search)}&trash=${filter === 'trash'}`).then(result => { if (active) setData(result); }).catch(error => { if (active) setError(message(error)); }); return () => { active = false; }; }, [search, filter]);
+  const load = useCallback(async (cursor?: string) => { const result = await api<BoardList>(`/api/boards?q=${encodeURIComponent(search)}&trash=${filter === 'trash'}&shared=${filter === 'shared'}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); setData(current => cursor && current ? { boards: [...current.boards, ...result.boards], next_cursor: result.next_cursor } : result); }, [search, filter]);
+  useEffect(() => { let active = true; setError(''); setData(null); api<BoardList>(`/api/boards?q=${encodeURIComponent(search)}&trash=${filter === 'trash'}&shared=${filter === 'shared'}`).then(result => { if (active) setData(result); }).catch(error => { if (active) setError(message(error)); }); return () => { active = false; }; }, [search, filter]);
   const action = async (board: ListBoard, kind: 'favorite' | 'restore' | 'delete') => {
     if (kind === 'delete' && !window.confirm(`“${board.title}” 게시판을 휴지통으로 옮길까요? 학생 접근도 중지됩니다.`)) return;
     setPending(board.id); setError('');
@@ -59,15 +60,15 @@ export function Dashboard() {
   };
   const list = data?.boards.filter(board => filter !== 'favorite' || board.favorite) ?? [];
   return <main className="boards-dashboard" data-library="true">
-    <aside className="boards-library-sidebar"><h2>내 공간</h2><div className="boards-tabs" role="group" aria-label="게시판 분류"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}><LayoutDashboard size={16} />전체 게시판</button><button className={filter === 'favorite' ? 'active' : ''} onClick={() => setFilter('favorite')}><Star size={16} />즐겨찾기</button><button className={filter === 'trash' ? 'active' : ''} onClick={() => setFilter('trash')}><Trash2 size={16} />휴지통</button></div><p>모아 · 삼정중학교<br />수업 게시판</p></aside>
+    <aside className="boards-library-sidebar"><h2>내 공간</h2><div className="boards-tabs" role="group" aria-label="게시판 분류"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}><LayoutDashboard size={16} />전체 게시판</button><button className={filter === 'favorite' ? 'active' : ''} onClick={() => setFilter('favorite')}><Star size={16} />즐겨찾기</button><button className={filter === 'shared' ? 'active' : ''} onClick={() => setFilter('shared')}><Users size={16} />공유받은 게시판</button><button className={filter === 'trash' ? 'active' : ''} onClick={() => setFilter('trash')}><Trash2 size={16} />휴지통</button></div><p>모아 · 삼정중학교<br />수업 게시판</p></aside>
     <section className="boards-library-main">
-    <div className="page-header"><div><h1>{filter === 'trash' ? '휴지통' : filter === 'favorite' ? '즐겨찾기' : '내 게시판'}{' '}<span className="board-library-total">{list.length}</span></h1></div><div className="board-library-tools"><label className="boards-search"><Search size={18} /><input value={query} onChange={event => setQuery(event.target.value)} aria-label="게시판 검색" placeholder="게시판 검색" /></label><button className="button primary" onClick={() => setCreate(true)}><Plus size={19} />만들기</button></div></div>
+    <div className="page-header"><div><h1>{filter === 'trash' ? '휴지통' : filter === 'favorite' ? '즐겨찾기' : filter === 'shared' ? '공유받은 게시판' : '내 게시판'}{' '}<span className="board-library-total">{list.length}</span></h1></div><div className="board-library-tools"><label className="boards-search"><Search size={18} /><input value={query} onChange={event => setQuery(event.target.value)} aria-label="게시판 검색" placeholder="게시판 검색" /></label><button className="button primary" onClick={() => setCreate(true)}><Plus size={19} />만들기</button></div></div>
     {error && <Notice>{error}</Notice>}{!data && !error && <Spinner />}
     {data && <div className="boards-library">{list.map(board => <article className="boards-library-card card" key={board.id}>
       {filter === 'trash' ? <div className="boards-cover" style={{ backgroundColor: board.color }}><Trash2 size={35} /><span>휴지통</span></div> : <a href={`/boards/${board.id}`} className={`boards-cover boards-cover-${board.format}`} style={{ backgroundColor: board.color }} aria-label={`${board.title} 열기`}><div className="boards-miniature" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <div key={i}><i /><b /><b /></div>)}</div><span className={`badge state-${board.state}`}><i />{labels[board.state]}</span></a>}
-      <div className="boards-library-card-body"><div className="boards-card-title">{filter === 'trash' ? <h3>{board.title}</h3> : <h3><a href={`/boards/${board.id}`}>{board.title}</a></h3>}<button className={`button ghost icon-button ${board.favorite ? 'favorite' : ''}`} aria-label={board.favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} disabled={!!pending || filter === 'trash'} onClick={() => void action(board, 'favorite')}><Star size={18} fill={board.favorite ? 'currentColor' : 'none'} /></button></div><p>{board.description || '함께 생각을 나누는 새로운 수업 공간'}</p><div className="boards-card-meta"><span><FileText size={14} />{board.post_count}개의 생각</span><span>{formats.find(item => item.value === board.format)?.label}</span></div><div className="boards-card-footer"><small>{stamp(board.updated_at)} 수정</small>{filter === 'trash' ? <button className="button ghost" disabled={!!pending} onClick={() => void action(board, 'restore')}>복원하기</button> : <button className="button ghost icon-button" title="휴지통으로 이동 (소유 교사)" aria-label={`${board.title} 휴지통으로 이동`} disabled={!!pending} onClick={() => void action(board, 'delete')}><Trash2 size={15} /></button>}</div></div>
+      <div className="boards-library-card-body"><div className="boards-card-title">{filter === 'trash' ? <h3>{board.title}</h3> : <h3><a href={`/boards/${board.id}`}>{board.title}</a></h3>}<button className={`button ghost icon-button ${board.favorite ? 'favorite' : ''}`} aria-label={board.favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} disabled={!!pending || filter === 'trash'} onClick={() => void action(board, 'favorite')}><Star size={18} fill={board.favorite ? 'currentColor' : 'none'} /></button></div><p>{board.description || '함께 생각을 나누는 새로운 수업 공간'}</p><div className="boards-card-meta"><span><FileText size={14} />{board.post_count}개의 생각</span><span>{formats.find(item => item.value === board.format)?.label}</span>{board.my_role && board.my_role !== 'owner' && <span className="boards-shared-badge"><Users size={14} />{board.my_role === 'editor' ? '공동 편집' : '보기 전용'} · {board.owner_name}</span>}</div><div className="boards-card-footer"><small>{stamp(board.updated_at)} 수정</small>{filter === 'trash' ? <button className="button ghost" disabled={!!pending} onClick={() => void action(board, 'restore')}>복원하기</button> : (!board.my_role || board.my_role === 'owner') && <button className="button ghost icon-button" title="휴지통으로 이동 (소유 교사)" aria-label={`${board.title} 휴지통으로 이동`} disabled={!!pending} onClick={() => void action(board, 'delete')}><Trash2 size={15} /></button>}</div></div>
     </article>)}{filter === 'all' && !search && <button className="boards-create-card" onClick={() => setCreate(true)}><span><Plus size={25} /></span><strong>새로운 생각을 모아볼까요?</strong><small>나만의 수업 게시판 만들기</small></button>}</div>}
-    {data && !list.length && (filter !== 'all' || !!search) && <EmptyState title={filter === 'trash' ? '휴지통이 비어 있어요' : filter === 'favorite' ? '자주 쓰는 게시판에 별을 달아주세요' : '검색한 게시판이 없어요'}>다른 검색어를 입력하거나 새로운 게시판을 만들어보세요.</EmptyState>}
+    {data && !list.length && (filter !== 'all' || !!search) && <EmptyState title={filter === 'trash' ? '휴지통이 비어 있어요' : filter === 'favorite' ? '자주 쓰는 게시판에 별을 달아주세요' : filter === 'shared' ? '다른 선생님이 초대한 게시판이 여기에 보여요' : '검색한 게시판이 없어요'}>다른 검색어를 입력하거나 새로운 게시판을 만들어보세요.</EmptyState>}
     {data?.next_cursor && <div className="boards-load-more"><button className="button secondary" onClick={() => void load(data.next_cursor!).catch(error => setError(message(error)))}>더 보기<ChevronDown size={16} /></button></div>}
     {create && <CreateBoard onClose={() => setCreate(false)} />}
     </section>
@@ -75,9 +76,8 @@ export function Dashboard() {
 }
 
 function Settings({ view, onClose, onSaved }: { view: BoardView; onClose: () => void; onSaved: (view: BoardView) => void }) {
-  const [form, setForm] = useState(view.board), [email, setEmail] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [success, setSuccess] = useState('');
+  const [form, setForm] = useState(view.board), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent) => { event.preventDefault(); setBusy(true); setError(''); try { onSaved(await api<BoardView>(`/api/boards/${view.board.id}`, { method: 'PATCH', body: body({ title: form.title, description: form.description, format: form.format, participation_mode: form.participation_mode, moderation: form.moderation, allow_comments: form.allow_comments, allow_reactions: form.allow_reactions, anonymous_display: form.anonymous_display, color: form.color, column_width: form.column_width, font_scale: form.font_scale, card_density: form.card_density, background_style: form.background_style, version: view.board.version }) })); onClose(); } catch (error) { setError(message(error)); } finally { setBusy(false); } };
-  const invite = async () => { setBusy(true); setError(''); try { await api(`/api/boards/${view.board.id}/members`, { method: 'POST', body: body({ email }) }); setSuccess('공동 편집 교사를 초대했어요.'); setEmail(''); } catch (error) { setError(message(error)); } finally { setBusy(false); } };
   return <Dialog title="수업 공간 설정" onClose={onClose} variant="settings"><form className="boards-form" onSubmit={submit}>
     <label className="field">게시판 이름<input className="input" required maxLength={200} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label><label className="field">활동 안내<textarea className="textarea" maxLength={5000} rows={3} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
     <div className="boards-form-row"><label className="field">배치 방식<select className="select" value={form.format} onChange={event => setForm({ ...form, format: event.target.value as BoardFormat })}>{formats.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="field">학생 참여<select className="select" value={form.participation_mode} onChange={event => setForm({ ...form, participation_mode: event.target.value as Board['participation_mode'] })}><option value="both">로그인 또는 익명</option><option value="login">Google 로그인 필수</option></select></label></div>
@@ -88,18 +88,32 @@ function Settings({ view, onClose, onSaved }: { view: BoardView; onClose: () => 
       <div className="boards-form-row"><label className="field">글자 크기<select className="select" value={form.font_scale ?? 'normal'} onChange={event => setForm({ ...form, font_scale: event.target.value as Board['font_scale'] })}><option value="small">작게</option><option value="normal">보통</option><option value="large">크게 (프로젝터)</option></select></label><label className="field">카드 간격<select className="select" value={form.card_density ?? 'comfortable'} onChange={event => setForm({ ...form, card_density: event.target.value as Board['card_density'] })}><option value="comfortable">여유 있게</option><option value="compact">촘촘하게</option></select></label></div>
     </fieldset>
     {error && <Notice>{error}</Notice>}<div className="boards-dialog-actions"><button className="button secondary" type="button" onClick={onClose}>취소</button><button className="button primary" disabled={busy}>설정 저장</button></div>
-  </form>{view.principal.id === view.board.owner_id && <div className="boards-invite"><h3><Users size={18} />함께 수업하는 선생님</h3><p className="muted">먼저 로그인한 학교 교사를 공동 편집자로 초대해요.</p><label className="field">교사 이메일<input className="input" type="email" value={email} placeholder="teacher@samjeong.ms.kr" onChange={event => setEmail(event.target.value)} /></label><button className="button secondary" disabled={busy || !email} onClick={() => void invite()}>편집자로 초대</button>{success && <p role="status">{success}</p>}</div>}</Dialog>;
+  </form><MembersPanel view={view} /></Dialog>;
 }
 
+const teacherActions: Record<string, string> = {
+  'post.published': '글을 승인했어요', 'post.rejected': '글을 반려했어요', 'post.hidden': '글을 숨겼어요', 'post.move': '글을 다른 섹션으로 옮겼어요', 'post.order': '글 순서를 바꿨어요', 'post.delete': '글을 삭제했어요',
+  'section.create': '섹션을 만들었어요', 'section.rename': '섹션 이름을 바꿨어요', 'section.delete': '섹션을 삭제했어요', 'section.restore': '섹션을 복원했어요', 'section.order': '섹션 순서를 바꿨어요',
+  'board.update': '게시판 설정을 바꿨어요', 'board.open': '참여를 열었어요', 'board.closed': '참여를 종료했어요', 'board.archived': '게시판을 보관했어요', 'board.restore': '게시판을 복원했어요',
+  'share.create': '공유 링크를 만들었어요', 'share.revoke': '공유 링크를 회수했어요', 'participant.block': '참여자를 제한했어요', 'participant.unblock': '참여 제한을 풀었어요',
+  'member.editor': '선생님을 편집자로 추가했어요', 'member.reader': '선생님을 보기 전용으로 추가했어요', 'member.remove': '선생님을 내보냈어요', 'member.leave': '게시판에서 나갔어요',
+};
 function ActivityPanel({ view, onClose }: { view: BoardView; onClose: () => void }) {
-  // Derived from the permission-filtered BoardView only; no extra data is fetched.
-  const items = view.posts.flatMap(post => [
-    { id: `post-${post.id}`, post, at: post.created_at, text: `${post.author_name}님이 글을 올렸어요` },
-    ...post.comments.map(item => ({ id: `comment-${item.id}`, post, at: item.created_at, text: `${item.author_name}님이 댓글을 남겼어요` })),
-  ]).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 50);
+  // Students get only items derived from their permission-filtered BoardView; managers also see teacher actions.
+  const [actions, setActions] = useState<BoardActivity[]>([]);
+  useEffect(() => { if (view.can_manage) api<BoardActivity[]>(`/api/boards/${view.board.id}/activity`).then(setActions).catch(() => setActions([])); }, [view.board.id, view.can_manage]);
+  const items = [
+    ...view.posts.flatMap(post => [
+      { id: `post-${post.id}`, postId: post.id as string | undefined, at: post.created_at, text: `${post.author_name}님이 글을 올렸어요`, detail: `${post.title}${post.status === 'pending' ? ' · 승인 대기' : ''}`, teacher: false },
+      ...post.comments.map(item => ({ id: `comment-${item.id}`, postId: post.id as string | undefined, at: item.created_at, text: `${item.author_name}님이 댓글을 남겼어요`, detail: post.title, teacher: false })),
+    ]),
+    ...actions.map(item => { const post = view.posts.find(entry => entry.id === item.target_id), section = [...view.sections, ...(view.deleted_sections ?? [])].find(entry => entry.id === item.target_id);
+      return { id: `action-${item.id}`, postId: post?.id, at: item.created_at, text: `${item.actor_name} 선생님이 ${teacherActions[item.action] ?? '게시판을 변경했어요'}`, detail: post?.title ?? section?.title ?? '', teacher: true }; }),
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 50);
   const jump = (postId: string) => { onClose(); setTimeout(() => document.getElementById(`post-${postId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); };
+  const row = (item: typeof items[number]) => <><strong>{item.text}</strong>{item.detail && <span>{item.detail}</span>}<time dateTime={item.at}>{stamp(item.at)}</time></>;
   return <Dialog title="최근 활동" onClose={onClose} variant="settings">
-    {items.length ? <ol className="board-activity">{items.map(item => <li key={item.id}><button type="button" onClick={() => jump(item.post.id)}><strong>{item.text}</strong><span>{item.post.title}{item.post.status === 'pending' ? ' · 승인 대기' : ''}</span><time dateTime={item.at}>{stamp(item.at)}</time></button></li>)}</ol> : <p className="muted">아직 활동이 없어요.</p>}
+    {items.length ? <ol className="board-activity">{items.map(item => <li key={item.id} className={item.teacher ? 'teacher' : undefined}>{item.postId ? <button type="button" onClick={() => jump(item.postId!)}>{row(item)}</button> : <div>{row(item)}</div>}</li>)}</ol> : <p className="muted">아직 활동이 없어요.</p>}
   </Dialog>;
 }
 

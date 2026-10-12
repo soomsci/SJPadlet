@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Principal, Role } from '@contracts';
 import { getDb, id, now, audit, emit, type Database } from '@db';
 import { inTeacherGroup, teacherGroup } from './teacher-group';
+import { acceptMemberInvites } from '@server/boards/members';
 import { cookieValue, fail, input, json } from '@server/common/http';
 
 const SESSION='samjeong_session';
@@ -137,6 +138,7 @@ async function callback(req:Request){
  const result=await db.transaction(async tx=>{await tx.run('LOCK TABLE teacher_admissions IN SHARE ROW EXCLUSIVE MODE');let principal=await tx.one<Principal>('SELECT * FROM principals WHERE provider_subject=$1 FOR UPDATE',[payload!.sub]);const role=await googleAdmissionRole(tx,payload!,flow.intent,groupMember,principal?.role);if(principal?.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
  if(principal){await tx.run('UPDATE principals SET display_name=$2,email=$3,role=$4 WHERE id=$1',[principal.id,(payload!.name||'학생').slice(0,80),email,role]);principal={...principal,display_name:(payload!.name||'학생').slice(0,80),email,role};}
  else{principal={id:id(),role,display_name:(payload!.name||'학생').slice(0,80),email,provider_subject:payload!.sub,disabled_at:null,created_at:now()};await tx.run('INSERT INTO principals(id,role,display_name,email,provider_subject,created_at) VALUES($1,$2,$3,$4,$5,$6)',[principal.id,role,principal.display_name,email,principal.provider_subject,principal.created_at]);}
+ await acceptMemberInvites(tx,principal.id,email,role);
  if(flow.intent==='link')await linkAnonymous(tx,previous!,principal);
  await audit(tx,principal.id,'auth.google',principal.id);return {principal,cookie:await sessionFor(tx,principal)};}).catch((error:unknown)=>{if(error&&typeof error==='object'&&'code' in error&&error.code==='23503')fail(409,'CONFLICT','작성 중인 작업이 있어 계정을 연결하지 못했습니다. 기존 익명 참여는 보존되었습니다. 잠시 후 다시 연결해주세요.');throw error;});
  const headers=new Headers({'Location':flow.return_to,'Cache-Control':'no-store'});headers.append('Set-Cookie',result.cookie);headers.append('Set-Cookie',cookie(FLOW,'',0));return new Response(null,{status:302,headers});

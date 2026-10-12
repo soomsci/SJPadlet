@@ -22,6 +22,9 @@ export async function boardAccess(db:Database,principal:Principal,boardId:string
  if(!board || board.deleted_at)fail(404,'NOT_FOUND','게시판을 찾을 수 없습니다.');
  const can_manage=await canManage(db,current,board);
  if(can_manage)return {board,can_manage:true,can_write:true,submission_only:false,shares:[]};
+ // Read-only co-teachers see the board in every state, like its editors (but never write).
+ const reader=['teacher','admin'].includes(current.role) && await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'reader']);
+ if(reader)return {board,can_manage:false,can_write:false,submission_only:false,shares:[]};
  if(await db.one('SELECT 1 FROM board_blocks WHERE board_id=$1 AND principal_id=$2',[board.id,current.id]))fail(403,'FORBIDDEN','이 게시판의 참여가 차단되었습니다.');
  if(board.state==='draft'||board.state==='archived')fail(404,'NOT_FOUND','게시판을 찾을 수 없습니다.');
  if(board.participation_mode==='login' && current.role==='anonymous')fail(403,'AUTH_REQUIRED','로그인이 필요한 활동입니다.');
@@ -31,8 +34,6 @@ export async function boardAccess(db:Database,principal:Principal,boardId:string
  AND ((s.target_type IN ('board','submission') AND s.target_id=s.board_id)
  OR (s.target_type='section' AND EXISTS(SELECT 1 FROM sections x WHERE x.id=s.target_id AND x.board_id=s.board_id AND x.deleted_at IS NULL))
  OR (s.target_type='post' AND EXISTS(SELECT 1 FROM posts x WHERE x.id=s.target_id AND x.board_id=s.board_id AND x.status NOT IN ('deleted','hidden'))))`,[current.id,board.id,new Date().toISOString()]);
- const reader=['teacher','admin'].includes(current.role) && await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'reader']);
- if(reader)return {board,can_manage:false,can_write:false,submission_only:false,shares:[]};
  if(!shares.length)fail(404,'NOT_FOUND','참여 권한이 없거나 공유가 만료되었습니다.');
  return {board,can_manage:false,can_write:board.state==='open'&&shares.some(s=>s.scope==='write'),submission_only:shares.every(s=>s.target_type==='submission'),shares};
 }

@@ -58,7 +58,7 @@ export async function handleShares(req:Request,segments:string[]):Promise<Respon
    let code='';for(let attempt=0;attempt<8;attempt++){code=randomBytes(5).toString('hex').toUpperCase();if(!await tx.one('SELECT id FROM share_links WHERE code_hash=$1',[hash(code)]))break;if(attempt===7)fail(503,'RETRY','다시 시도해주세요.');}
    const shareId=id();const expires=new Date(Date.now()+data.expires_hours*3600000).toISOString();
    await tx.run('INSERT INTO share_links(id,board_id,target_type,target_id,scope,token_hash,code_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[shareId,board.id,data.target_type,data.target_id,data.scope,hash(token),hash(code),expires,now()]);
-   await audit(tx,principal.id,'share.create',shareId);
+   await audit(tx,principal.id,'share.create',shareId,board.id);
    // SHARE_URL is the short redirect host printed in links/QR; it forwards the same path to APP_URL.
    const origin=new URL(setting('SHARE_URL')||setting('APP_URL')||'http://localhost:3000').origin;
    return {id:shareId,url:origin+'/s/'+token,code,expires_at:expires,target_type:data.target_type,target_id:data.target_id};
@@ -74,7 +74,7 @@ export async function handleShares(req:Request,segments:string[]):Promise<Respon
    const initial=await tx.one<Share>('SELECT * FROM share_links WHERE id=$1',[segments[1]]);if(!initial)fail(404,'NOT_FOUND','초대를 찾을 수 없습니다.');
    const board=await tx.one<Board>('SELECT * FROM boards WHERE id=$1 FOR UPDATE',[initial.board_id]);if(!board||!await canManage(tx,principal,board))fail(404,'NOT_FOUND','초대를 찾을 수 없습니다.');
    const share=await tx.one<Share>('SELECT * FROM share_links WHERE id=$1 FOR UPDATE',[initial.id]);if(!share)fail(404,'NOT_FOUND','초대를 찾을 수 없습니다.');
-   if(!share.revoked_at){await tx.run('UPDATE share_links SET revoked_at=$1,version=version+1 WHERE id=$2',[now(),share.id]);await audit(tx,principal.id,'share.revoke',share.id);await emit(tx,board.id,'access_changed');}
+   if(!share.revoked_at){await tx.run('UPDATE share_links SET revoked_at=$1,version=version+1 WHERE id=$2',[now(),share.id]);await audit(tx,principal.id,'share.revoke',share.id,share.board_id);await emit(tx,board.id,'access_changed');}
   });return json({revoked:true});
  }
  if(route==='share-preview'&&req.method==='GET'){

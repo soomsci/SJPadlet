@@ -108,6 +108,10 @@ npm exec -- wrangler secret put SUPABASE_SECRET_KEY
 npm exec -- wrangler secret put SUPABASE_SIGNING_JWK
 ```
 
+### 공동 작업 마이그레이션 (`202610120003_co_teachers.sql`)
+
+`audit_events.board_id`와 `board_member_invites`를 추가한다. 이 버전부터 모든 감사 기록이 `board_id`를 함께 저장하므로 **마이그레이션 전에 새 Worker를 배포하면 로그인과 게시판 생성까지 실패한다.** 반드시 `npm run db:migrate:free` 후 `npm run deploy:free`를 실행한다.
+
 ### 짧은 주소 `sjmoa.pages.dev`
 
 공유 링크·QR·프로젝터 안내는 `SHARE_URL`(`https://sjmoa.pages.dev`)로 표시한다. `apps/short-url/_worker.js`가 Cloudflare Pages(무료)에서 같은 경로와 쿼리를 `APP_URL`로 302 전달한다. 로그인·세션·권한은 모두 기존 주소에서 처리하고 짧은 주소는 GET/HEAD 전달만 한다. 초대 토큰(43자)은 추측 방지를 위해 줄이지 않으며, 말로 전할 때는 `sjmoa.pages.dev/join` + 10자리 참여 코드를 쓴다.
