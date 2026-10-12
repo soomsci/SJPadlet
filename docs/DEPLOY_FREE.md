@@ -1,6 +1,8 @@
 # Cloudflare + Supabase 무료 시범 배포
 
-2026-10-12. 실제 계정과 비밀값은 아직 연결되지 않았다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록은 완료했다. Supabase 연결 정보·Google OAuth 비밀값과 실제 서비스 배포는 아직 준비 중이다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+
+현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 배포 예정 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 주소 등록은 Worker 배포 완료를 뜻하지 않는다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
 
 ## 구조
 
@@ -43,14 +45,14 @@ Cloudflare Account ID와 `workers.dev` 하위 도메인, Supabase Project URL과
 
 사용자가 지정한 [공식 설정 지침](https://developers.cloudflare.com/agent-setup/prompt.md)을 공식 저장소의 원문과 함께 확인했다. 이 환경에서:
 
-- Cloudflare 공식 스킬 17개를 `.tooling/cloudflare-skills`에 내려받아 참고용으로 보관했다. Git에서 제외된다. 원본 `cloudflare/skills` 커밋은 `c430dd965cea3a8faf0ef035e3b3d73b38518081`이다. 전역 스킬 자동 등록 완료를 뜻하지 않는다.
+- 최초 시도에서 Cloudflare 공식 스킬 17개를 `.tooling/cloudflare-skills`에 내려받아 참고용으로 보관했다. Git에서 제외된다. 원본 `cloudflare/skills` 커밋은 `c430dd965cea3a8faf0ef035e3b3d73b38518081`이다. 재개 시 `/Users/minsu/.agents/skills`의 공식 스킬 설치와 사용 가능한 스킬 목록을 확인했다.
 - 프로젝트 Wrangler 4.149.0과 바인딩 타입을 설치·생성했다.
-- 공식 전역 스킬 설치 명령은 실행했지만 완료되지 않았다.
-- `codex mcp add cloudflare --url https://mcp.cloudflare.com/mcp`는 `~/.codex/config.toml` 쓰기 권한으로 실패했다. 이후 `codex mcp login cloudflare`는 등록된 서버가 없어서 실패했다.
-- Wrangler 로그인은 OAuth 콜백 포트 `::1:8976`의 `listen EPERM`으로 실패했다. 실제 계정 OAuth 연결은 완료되지 않았다.
+- 최초 전역 설치/MCP 등록은 권한 제한으로 실패했으나, 재개 시 Cloudflare MCP가 활성화되고 `whoami`와 계정 조회가 성공했다. Worker·Hyperdrive 목록도 조회했다. 목록은 모두 비어 있었다.
+- `workers.dev` 서브도메인을 API로 등록하고 재조회했다. 결제/구독 조회는 인증 오류로 거부되어 현재 결제 상태를 확인했다고 주장하지 않는다. 유료 상품을 생성하거나 플랜을 변경하지 않았다.
+- Wrangler 로그인은 최초 시도에서 OAuth 콜백 포트 `::1:8976`의 `listen EPERM`으로 실패했다. 재개 시에도 CLI `whoami`는 미로그인이다. **MCP OAuth와 Wrangler CLI 인증은 별개다.** 배포 스크립트를 쓰려면 일반 터미널에서 `npm run cf:login`으로 CLI 인증을 완료해야 한다.
 - 선택 사항인 베타 `cf` CLI는 설치하지 않았다.
 
-권한이 허용되는 실행 환경에서 같은 공식 절차를 이어갈 수 있도록 `npm run cf:agent:setup` 스크립트를 준비했다. 전역 등록·로그인 성공 후 Codex를 재시작해야 MCP 도구가 로드된다. 현재 연결되지 않은 MCP를 연결된 것처럼 사용하지 않는다.
+권한이 허용되는 실행 환경에서 같은 공식 절차를 다시 실행할 수 있도록 `npm run cf:agent:setup` 스크립트를 준비했다. 현재 세션의 MCP는 이미 연결되어 있으므로 불필요하게 재설치하지 않는다. 새 등록·로그인 후 Codex를 재시작하면 MCP 도구가 로드된다.
 
 Wrangler 검증 시 홈 디렉터리 로그 쓰기를 피하기 위해 `.tooling`을 `XDG_CONFIG_HOME`으로, `/private/tmp/padlet-wrangler.log`를 로그 경로로 사용했다. 이때의 프로필은 기본 Wrangler 프로필과 별개다. 계정 연결 후 사용할 프로필 위치를 일관되게 유지한다.
 
@@ -71,7 +73,7 @@ Cloudflare에서 Supabase DB를 가리키는 Hyperdrive를 만든다. 연결 정
 
 Hyperdrive는 연결 풀만 사용한다. [Supabase 연결 가이드](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/), [권한 조회와 캐시 설정](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/).
 
-`wrangler.jsonc`에 실제 `account_id`, Hyperdrive ID, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, 교사/관리자 명단을 넣는다. 비밀키나 DB 암호는 이 파일에 넣지 않는다. 현재 설정은 실제 리소스 대신 placeholder이며 자동 리소스 생성은 하지 않는다.
+`wrangler.jsonc`의 `account_id`, `APP_URL`, 교사/관리자 명단은 현재 연결된 계정과 사용자 지시를 반영했다. Hyperdrive ID, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`는 실제 값을 넣어야 한다. 비밀키나 DB 암호는 이 파일에 넣지 않는다. 나머지 placeholder가 있으면 배포가 중단되며 자동 리소스 생성은 하지 않는다.
 
 ## 5. 실시간 서명 키와 Worker secrets
 
@@ -91,6 +93,24 @@ npm exec -- wrangler secret put SUPABASE_SIGNING_JWK
 ```
 
 Google 웹 OAuth 클라이언트의 리디렉션 주소는 `<APP_URL>/api/auth/google/callback`이다. `TEACHER_ADMISSION=allowlist`와 실제 교사 명단을 유지한다. `ADMIN_EMAILS` 계정도 `@samjeong.ms.kr`와 Google Workspace `hd`가 검증되어야 한다. 학생 로그인은 교사 도메인과 별도이며, 유효한 초대를 요구한다.
+
+### Google OAuth 생성 순서
+
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 이 앱의 프로젝트를 선택하거나 만든다.
+2. **Google 인증 플랫폼(Google Auth Platform) → 시작하기/Get started**에서 앱 이름 `모아 · 삼정학교`, 지원 이메일, 개발자 연락 이메일을 설정한다. 이미 초기 설정했다면 Branding에서 확인한다.
+3. **대상/Audience**의 사용자 유형은 **외부/External**로 설정한다. 학교 밖 Google 계정을 쓰는 학생도 로그인할 수 있어야 하기 때문이다. 교사 도메인과 명단 제한은 앱 서버에서 별도로 검사한다. 우선 테스트 상태로 설정한다.
+4. **데이터 액세스/Data Access**에는 기본 로그인 범위 `openid`, `https://www.googleapis.com/auth/userinfo.email`, `https://www.googleapis.com/auth/userinfo.profile`만 사용한다. 앱도 이 세 범위만 요청한다.
+5. **클라이언트/Clients → 클라이언트 만들기/Create client → 웹 애플리케이션/Web application**을 선택하고 이름을 `모아 웹`으로 설정한다. 승인된 리디렉션 URI에 아래 주소를 정확히 입력한다.
+
+```text
+https://samjeong-moa.samjeong-moa.workers.dev/api/auth/google/callback
+```
+
+이 서버 로그인 흐름은 JavaScript 원본 등록을 필수로 사용하지 않는다. 원본을 입력한다면 경로 없이 `https://samjeong-moa.samjeong-moa.workers.dev`를 입력한다. 로컬 Next.js 개발까지 확인하려는 경우 별도 리디렉션 `http://localhost:3000/api/auth/google/callback`을 추가할 수 있다.
+
+6. 생성 직후 클라이언트 ID와 secret을 안전하게 저장한다. 프로젝트에 생성한 Git 제외 파일 `.env.free`의 `GOOGLE_CLIENT_ID=`, `GOOGLE_CLIENT_SECRET=`에 입력한다. 이 파일에 입력하는 것만으로 원격 Worker에 자동 등록되는 것은 아니며, 실제 배포 때 Worker secrets로 별도 등록해야 한다. secret은 채팅·Git·명령 인수에 넣지 않는다.
+
+Google의 기본 이름/이메일/프로필 로그인만 요청하는 앱은 테스트 사용자 등록·7일 만료 규칙의 예외가 적용된다. 다른 API 범위를 추가하면 이 예외가 사라질 수 있다. 학교 Workspace에서 외부 앱을 차단했다면 학교 관리자의 허용 설정도 필요하다. [Google Audience 공식 안내](https://support.google.com/cloud/answer/15549945?hl=en), [웹 OAuth 클라이언트와 정확한 리디렉션 주소](https://developers.google.com/identity/protocols/oauth2/web-server).
 
 Supabase Realtime 설정은 private 채널만 허용하는 옵션을 활성화한다. 메시지 RLS는 서명된 `moa_topic`과 요청 채널을 일치시키며, 앱/Storage 직접 읽기 권한은 JWT에 부여하지 않는다. [Realtime 권한 캐시와 만료](https://supabase.com/docs/guides/realtime/authorization).
 

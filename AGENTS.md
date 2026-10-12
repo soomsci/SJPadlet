@@ -18,7 +18,7 @@
 - 무료 운영이 우선이다. 사용자 승인 없이 유료 플랜·도메인·리소스를 추가하지 않는다. Worker는 이미지 전용·1MB 업로드·학교 전체 800MB 한도를 강제한다. 일반 문서와 영상은 링크로 공유한다.
 - Hyperdrive는 쿼리 캐시를 끈 구성만 사용한다. 모든 브라우저용 Supabase 키로 앱 데이터와 Storage 객체를 직접 읽지 못하게 한다. Realtime에는 빈 알림만 전달하고 내용은 권한 API에서 가져온다.
 - Worker의 DB와 환경값은 요청별 컨텍스트로 관리한다. 모듈 전역의 DB 연결 재사용이나 process.env 변경을 하지 않는다. 운영에서 DDL을 자동 실행하지 않고 버전 마이그레이션을 적용한다.
-- Cloudflare 작업 시 프로젝트 Wrangler 버전을 사용한다. 이 환경에 내려받은 공식 스킬은 Git 제외 경로 `.tooling/cloudflare-skills`에 있으며, 존재하면 관련 SKILL.md를 읽고 적용한다. 새 체크아웃에서는 공식 설치 절차를 따른다. 전역 MCP 연결은 이 환경의 설정 쓰기 제한 때문에 미완료이므로 연결 여부를 확인한다.
+- Cloudflare 작업 시 프로젝트 Wrangler 버전을 사용한다. 공식 스킬은 현재 `/Users/minsu/.agents/skills`에 설치되어 있으며, 관련 SKILL.md를 읽고 적용한다. 참고 사본은 Git 제외 경로 `.tooling/cloudflare-skills`에 있다. 새 체크아웃에서는 사용 가능한 스킬 목록을 확인한다. Cloudflare MCP 연결은 확인되었으나 Wrangler CLI 로그인은 별도이므로 각 연결 상태를 확인한다.
 
 ## 병렬 작업
 

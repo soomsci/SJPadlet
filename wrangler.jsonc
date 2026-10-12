@@ -20,10 +20,10 @@
     "@db": "./packages/db/worker.ts"
   },
   "vars": {
-    "APP_URL": "https://samjeong-moa.YOUR_SUBDOMAIN.workers.dev",
+    "APP_URL": "https://samjeong-moa.samjeong-moa.workers.dev",
     "TEACHER_ADMISSION": "allowlist",
-    "TEACHER_EMAILS": "",
-    "ADMIN_EMAILS": "",
+    "TEACHER_EMAILS": "xopowok08@samjeong.ms.kr",
+    "ADMIN_EMAILS": "xopowok08@samjeong.ms.kr",
     "FREE_TIER_MODE": "true",
     "MEDIA_BACKEND": "supabase",
     "SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
@@ -55,5 +55,6 @@
       "SUPABASE_SECRET_KEY",
       "SUPABASE_SIGNING_JWK"
     ]
-  }
+  },
+  "account_id": "7577f586f44b23fbc4ebf27e21d19a70"
 }
