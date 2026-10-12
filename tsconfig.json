@@ -45,6 +45,7 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",
+    "tests/**/*.tsx",
     "scripts/**/*.ts"
   ],
   "exclude": [

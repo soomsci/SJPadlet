@@ -22,4 +22,4 @@ function Route() {
   return <main className="page-container"><h1>페이지를 찾을 수 없어요</h1><a className="button primary" href="/">홈으로</a></main>;
 }
 
-createRoot(document.getElementById('root')!).render(<><a className="skip-link" href="#main">본문 바로가기</a><AppHeader /><div id="main"><Route /></div><footer className="site-footer"><span>모아 · 삼정학교 협업보드</span><span>작은 생각이 모여, 더 큰 배움으로.</span></footer></>);
+createRoot(document.getElementById('root')!).render(<><a className="skip-link" href="#main">본문 바로가기</a><AppHeader /><div id="main"><Route /></div><footer className="site-footer"><span>모아 · 삼정중학교 협업보드</span><span>작은 생각이 모여, 더 큰 배움으로.</span></footer></>);

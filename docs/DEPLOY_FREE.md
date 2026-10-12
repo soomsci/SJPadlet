@@ -109,7 +109,7 @@ Google 웹 OAuth 클라이언트의 리디렉션 주소는 `<APP_URL>/api/auth/g
 ### Google OAuth 생성 순서
 
 1. [Google Cloud Console](https://console.cloud.google.com/)에서 이 앱의 프로젝트를 선택하거나 만든다.
-2. **Google 인증 플랫폼(Google Auth Platform) → 시작하기/Get started**에서 앱 이름 `모아 · 삼정학교`, 지원 이메일, 개발자 연락 이메일을 설정한다. 이미 초기 설정했다면 Branding에서 확인한다.
+2. **Google 인증 플랫폼(Google Auth Platform) → 시작하기/Get started**에서 앱 이름 `모아 · 삼정중학교`, 지원 이메일, 개발자 연락 이메일을 설정한다. 이미 초기 설정했다면 Branding에서 확인한다.
 3. **대상/Audience**의 사용자 유형은 **외부/External**로 설정한다. 학교 밖 Google 계정을 쓰는 학생도 로그인할 수 있어야 하기 때문이다. 교사 도메인과 명단 제한은 앱 서버에서 별도로 검사한다. 우선 테스트 상태로 설정한다.
 4. **데이터 액세스/Data Access**에는 기본 로그인 범위 `openid`, `https://www.googleapis.com/auth/userinfo.email`, `https://www.googleapis.com/auth/userinfo.profile`만 사용한다. 앱도 이 세 범위만 요청한다.
 5. **클라이언트/Clients → 클라이언트 만들기/Create client → 웹 애플리케이션/Web application**을 선택하고 이름을 `모아 웹`으로 설정한다. 승인된 리디렉션 URI에 아래 주소를 정확히 입력한다.
