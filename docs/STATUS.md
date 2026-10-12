@@ -59,7 +59,7 @@
 
 Supabase 보안 advisor에는 오류/경고가 없었으며, 앱 테이블의 정책 미설정 INFO는 직접 접근을 의도적으로 차단하는 설계에 따른다. [RLS 정책 없는 테이블 안내](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
 
-프로젝트 URL/publishable key는 Worker 설정과 Git 제외 `.env.free`에 저장했다. Google ID/secret 입력 존재와 ID 형식은 확인했으나 실제 로그인은 미검증이다. 서버용 Supabase secret, DB 접속 암호/주소, 서명 키 가져오기·활성화, Hyperdrive와 원격 Worker 배포는 아직 남아 있다. 로컬 서명 키 파일은 생성했으며 원격 등록 완료로 간주하지 않는다.
+프로젝트 URL/publishable key는 Worker 설정과 Git 제외 `.env.free`에 저장했다. Google ID/secret 입력 존재와 ID 형식은 확인했으나 실제 로그인은 미검증이다. 사용자가 DB 주소/비밀번호와 서버용 Supabase secret을 입력했고, 대상 프로젝트 주소·예시 비밀번호 교체·서버 키 형식을 확인했다. 이 실행 환경에서는 DB/Storage 연결 테스트가 DNS `ENOTFOUND`로 중단돼 실제 자격 증명 유효성을 검증했다고 간주하지 않는다. 서명 키 가져오기·활성화, Hyperdrive와 원격 Worker 배포는 아직 남아 있다. 로컬 서명 키 파일은 생성했으며 원격 등록 완료로 간주하지 않는다.
 
 ## 다음 완료 조건
 
