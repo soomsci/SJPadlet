@@ -52,6 +52,16 @@ async function limit(tx: Database, principal: Principal, boardId: string, kind: 
 async function section(tx: Database, boardId: string, sectionId: string | null | undefined) {
   if (sectionId && !await tx.one('SELECT id FROM sections WHERE id=$1 AND board_id=$2 AND deleted_at IS NULL', [sectionId, boardId])) fail(400, 'INVALID_INPUT', '이 게시판의 섹션을 선택해주세요.');
 }
+const MAX_RANK = 2147483647;
+/** Appends after the last post in the section. Legacy timestamp ranks near the INTEGER limit are renumbered first (caller holds the board lock). */
+async function nextRank(tx: Database, boardId: string, sectionId: string | null) {
+  const where = "board_id=$1 AND section_id IS NOT DISTINCT FROM $2 AND status<>'deleted'";
+  const top = Number((await tx.one<{ top: number | null }>(`SELECT max(rank) AS top FROM posts WHERE ${where}`, [boardId, sectionId]))?.top ?? -100);
+  if (top <= MAX_RANK - 100) return top + 100;
+  const ordered = await tx.all<{ id: string }>(`SELECT id FROM posts WHERE ${where} ORDER BY rank,created_at,id`, [boardId, sectionId]);
+  await tx.run('UPDATE posts SET rank=((ordered.position-1)*100)::int FROM unnest($1::text[]) WITH ORDINALITY AS ordered(id,position) WHERE posts.id=ordered.id', [ordered.map(post => post.id)]);
+  return ordered.length * 100;
+}
 function canCreate(access: Access, sectionId: string | null | undefined) {
   writable(access);
   if (!access.can_manage && !access.shares.some(s => s.scope === 'write' && (s.target_type === 'board' || s.target_type === 'submission' || (s.target_type === 'section' && s.target_id === sectionId)))) {
@@ -197,7 +207,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         await consumeDraft(tx,p,resourceId,{draft_id:data.draft_id,draft_version:data.draft_version,edit_post_id:null});
         await limit(tx, p, resourceId, 'post', 10);
         const postId = id(), timestamp = now(), status = access.board.moderation && !access.can_manage ? 'pending' : 'published';
-        await tx.run('INSERT INTO posts(id,board_id,section_id,author_id,title,body,link,status,color,rank,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)', [postId, resourceId, data.section_id ?? null, p.id, data.title, data.body, data.link || null, status, data.color, Date.now() % 2147483647, timestamp]);
+        await tx.run('INSERT INTO posts(id,board_id,section_id,author_id,title,body,link,status,color,rank,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)', [postId, resourceId, data.section_id ?? null, p.id, data.title, data.body, data.link || null, status, data.color, await nextRank(tx, resourceId, data.section_id ?? null), timestamp]);
         await attach(tx, p, resourceId, postId, data.attachment_ids);
         if (idem) await tx.run('INSERT INTO idempotency(principal_id,key,result_id,created_at) VALUES($1,$2,$3,$4)', [p.id, idem, postId, timestamp]);
         await touch(tx, resourceId, 'post'); return postId;

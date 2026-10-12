@@ -36,3 +36,14 @@ describe('deployment secrets and database target', () => {
     expect(() => parseCommandJson('sensitive-invalid-output')).toThrow('명령 결과를 확인하지 못했습니다.');
   });
 });
+
+describe('static security headers', () => {
+  it('pins the CSP Supabase origin to the deployed project instead of any *.supabase.co', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const headers = await readFile(new URL('../../apps/free-web/public/_headers', import.meta.url), 'utf8');
+    const deployed = JSON.parse(await readFile(new URL('../../wrangler.jsonc', import.meta.url), 'utf8')) as { vars: { SUPABASE_URL: string } };
+    const connect = headers.match(/connect-src ([^;]+)/)![1].split(/\s+/);
+    const host = new URL(deployed.vars.SUPABASE_URL).host;
+    expect(connect).toEqual(["'self'", `https://${host}`, `wss://${host}`]);
+  });
+});

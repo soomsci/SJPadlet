@@ -73,3 +73,32 @@ describe('sharing and student participation',()=>{
   await db.run("DELETE FROM rate_limits WHERE key='share.code.global'");
  });
 });
+describe('shared classroom devices and per-client limits',()=>{
+ const cookieOf=(response:Response|null)=>response!.headers.get('Set-Cookie')!.split(';')[0];
+ const join=(body:Record<string,unknown>,cookie?:string,ip?:string)=>{const req=request('join',body,cookie);if(ip)req.headers.set('cf-connecting-ip',ip);return handleShares(req,['join']);};
+ it('starts a new anonymous identity by default on a device and ends the previous student session',async()=>{
+  const token=(await create()).url.split('/').at(-1);
+  const first=await join({token,mode:'anonymous',display_name:'학생 가'});const a=cookieOf(first);
+  expect(first!.headers.get('Set-Cookie')).toContain('Max-Age=86400');
+  const b=cookieOf(await join({token,mode:'anonymous',display_name:'학생 나'},a));
+  expect(await getPrincipal(request('me',undefined,a))).toBeNull();
+  expect((await getPrincipal(request('me',undefined,b)))?.display_name).toBe('학생 나');
+ });
+ it('keeps the same anonymous identity only when the student explicitly continues',async()=>{
+  const token=(await create()).url.split('/').at(-1);const a=cookieOf(await join({token,mode:'anonymous',display_name:'학생 가'}));
+  const before=await getPrincipal(request('me',undefined,a));const resumed=await join({token,mode:'anonymous',continue:true},a);
+  expect(resumed!.headers.get('Set-Cookie')).toBeNull();expect((await getPrincipal(request('me',undefined,a)))?.id).toBe(before!.id);
+ });
+ it('does not let a blocked anonymous identity rejoin as someone new from the same device',async()=>{
+  const token=(await create()).url.split('/').at(-1);const a=cookieOf(await join({token,mode:'anonymous'}));const blocked=await getPrincipal(request('me',undefined,a));
+  await (await getDb()).run('INSERT INTO board_blocks(board_id,principal_id,created_at) VALUES($1,$2,$3)',[board.id,blocked!.id,now()]);
+  await expect(join({token,mode:'anonymous'},a)).rejects.toMatchObject({code:'FORBIDDEN'});
+  await (await getDb()).run('DELETE FROM board_blocks WHERE principal_id=$1',[blocked!.id]);
+ });
+ it('rate limits code attempts per client before the school-wide backstop',async()=>{
+  const key='share.code.ip.'+digest('ip:198.51.100.7').slice(0,24);
+  await (await getDb()).run('INSERT INTO rate_limits(key,count,resets_at) VALUES($1,200,$2) ON CONFLICT(key) DO UPDATE SET count=200,resets_at=EXCLUDED.resets_at',[key,new Date(Date.now()+60000).toISOString()]);
+  await expect(join({code:'AABBCCDDEE',mode:'anonymous'},undefined,'198.51.100.7')).rejects.toMatchObject({code:'RATE_LIMITED'});
+  await expect(join({code:'AABBCCDDEE',mode:'anonymous'},undefined,'198.51.100.8')).rejects.toSatisfy((error:{code?:string})=>error.code!=='RATE_LIMITED');
+ });
+});

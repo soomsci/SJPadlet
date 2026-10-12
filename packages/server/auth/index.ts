@@ -27,7 +27,9 @@ export async function getPrincipal(req:Request):Promise<Principal|null>{
  const db=await getDb();return db.one<Principal>(`SELECT p.* FROM sessions s JOIN principals p ON p.id=s.principal_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND p.disabled_at IS NULL`,[digest(token),now()]);
 }
 export async function requirePrincipal(req:Request):Promise<Principal>{const principal=await getPrincipal(req);if(!principal)fail(401,'AUTH_REQUIRED','로그인하거나 공유 링크로 참여해주세요.');return principal;}
-async function sessionFor(db:Database,principal:Principal){const token=random();await db.run('INSERT INTO sessions(id,principal_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5)',[id(),principal.id,digest(token),new Date(Date.now()+7*86400000).toISOString(),now()]);return cookie(SESSION,token,7*86400);}
+async function sessionFor(db:Database,principal:Principal){const token=random();await db.run('INSERT INTO sessions(id,principal_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5)',[id(),principal.id,digest(token),new Date(Date.now()+(principal.role==='anonymous'?86400000:7*86400000)).toISOString(),now()]);return cookie(SESSION,token,principal.role==='anonymous'?86400:7*86400);}
+/** Deletes the session named by the request cookie (logout, or handing a shared device to the next student). */
+export async function endSession(db:Database,req:Request){let token:string|null=null;try{token=cookieValue(req,SESSION);}catch{}if(token)await db.run('DELETE FROM sessions WHERE token_hash=$1',[digest(token)]);}
 export async function createAnonymousSession(displayName:string):Promise<{principal:Principal;cookie:string}>{
  const name=displayName.trim()||'익명 학생';if(name.length>40)fail(400,'INVALID_INPUT','별명은 40자 이내로 입력해주세요.');
  const db=await getDb();return db.transaction(async tx=>{const principal:Principal={id:id(),role:'anonymous',display_name:name,email:null,disabled_at:null,provider_subject:null,created_at:now()};await tx.run('INSERT INTO principals(id,role,display_name,created_at) VALUES($1,$2,$3,$4)',[principal.id,principal.role,name,principal.created_at]);return {principal,cookie:await sessionFor(tx,principal)};});
@@ -50,12 +52,14 @@ export async function teacherGroupMembership(payload:Pick<TokenPayload,'sub'|'em
  * Database admission overrides env lists and the teacher group, while operator-managed admins remain protected.
  * Group membership is looked up before the caller's transaction so no lock is held during the Google API call.
  */
-export async function googleAdmissionRole(db:Database,payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>,intent:string,groupMember?:boolean|null):Promise<Role>{
+export async function googleAdmissionRole(db:Database,payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>,intent:string,groupMember?:boolean|null,current?:Role):Promise<Role>{
  let role=googleRole(payload,'student');
  const exactSchool=isExactSchool(payload);
  const admission=role!=='admin'&&exactSchool?await db.one<{enabled:boolean}>('SELECT enabled FROM teacher_admissions WHERE email=$1',[payload.email!.toLowerCase()]):null;
  if(admission)role=admission.enabled?'teacher':'student';
  else if(role==='student'&&exactSchool&&groupMember===true)role='teacher';
+ // A failed lookup never changes a teacher's stored role; only a successful lookup (or the daily recheck) can demote.
+ else if(role==='student'&&exactSchool&&groupMember===null&&current==='teacher')role='teacher';
  if(intent==='teacher'&&role==='student'&&!admission&&groupMember===null)fail(503,'TEACHER_GROUP_UNAVAILABLE','교사 그룹을 확인하지 못했습니다. 잠시 후 다시 로그인해주세요.');
  if(intent==='teacher'&&!['teacher','admin'].includes(role))fail(403,'TEACHER_NOT_ADMITTED','학교 교사 명단에 등록된 계정으로 로그인해주세요. 학생은 학생 참여를 이용해주세요.');
  return role;
@@ -130,7 +134,7 @@ async function callback(req:Request){
  const nonce=(payload as TokenPayload&{nonce?:string})?.nonce;
  if(!payload||!nonce||nonce.length!==flow.nonce.length||!timingSafeEqual(Buffer.from(nonce),Buffer.from(flow.nonce)))fail(403,'INVALID_OAUTH_NONCE','Google 인증 요청이 일치하지 않습니다.');
  const email=payload.email!.toLowerCase(),groupMember=await teacherGroupMembership(payload);
- const result=await db.transaction(async tx=>{await tx.run('LOCK TABLE teacher_admissions IN SHARE ROW EXCLUSIVE MODE');const role=await googleAdmissionRole(tx,payload!,flow.intent,groupMember);let principal=await tx.one<Principal>('SELECT * FROM principals WHERE provider_subject=$1 FOR UPDATE',[payload!.sub]);if(principal?.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
+ const result=await db.transaction(async tx=>{await tx.run('LOCK TABLE teacher_admissions IN SHARE ROW EXCLUSIVE MODE');let principal=await tx.one<Principal>('SELECT * FROM principals WHERE provider_subject=$1 FOR UPDATE',[payload!.sub]);const role=await googleAdmissionRole(tx,payload!,flow.intent,groupMember,principal?.role);if(principal?.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
  if(principal){await tx.run('UPDATE principals SET display_name=$2,email=$3,role=$4 WHERE id=$1',[principal.id,(payload!.name||'학생').slice(0,80),email,role]);principal={...principal,display_name:(payload!.name||'학생').slice(0,80),email,role};}
  else{principal={id:id(),role,display_name:(payload!.name||'학생').slice(0,80),email,provider_subject:payload!.sub,disabled_at:null,created_at:now()};await tx.run('INSERT INTO principals(id,role,display_name,email,provider_subject,created_at) VALUES($1,$2,$3,$4,$5,$6)',[principal.id,role,principal.display_name,email,principal.provider_subject,principal.created_at]);}
  if(flow.intent==='link')await linkAnonymous(tx,previous!,principal);
@@ -142,7 +146,7 @@ export async function handleAuth(req:Request,segments:string[]):Promise<Response
  if(path==='me'&&req.method==='GET'){const principal=await getPrincipal(req);return json({principal:principal?{id:principal.id,role:principal.role,display_name:principal.display_name,email:principal.role==='anonymous'?null:principal.email}:null,google_configured:googleConfigured(),demo_enabled:demoEnabled(req)});}
  if(path==='auth/google'&&req.method==='GET')return start(req);
  if(path==='auth/google/callback'&&req.method==='GET')return callback(req);
- if(path==='auth/logout'&&req.method==='POST'){let token:string|null=null;try{token=cookieValue(req,SESSION);}catch{}if(token)await (await getDb()).run('DELETE FROM sessions WHERE token_hash=$1',[digest(token)]);return json({ok:true},200,{'Set-Cookie':cookie(SESSION,'',0)});}
+ if(path==='auth/logout'&&req.method==='POST'){await endSession(await getDb(),req);return json({ok:true},200,{'Set-Cookie':cookie(SESSION,'',0)});}
  if(path==='auth/demo'&&req.method==='POST'){
   if(!demoEnabled(req))fail(404,'NOT_FOUND','요청을 찾을 수 없습니다.');
   const body=await input(req,z.object({role:z.enum(['teacher','student'])}));const db=await getDb();

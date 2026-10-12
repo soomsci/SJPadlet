@@ -37,6 +37,16 @@ beforeEach(async () => {
 });
 
 describe('persisted board lifecycle and settings', () => {
+  it('appends new posts after the last one and renumbers legacy ranks near the integer limit', async () => {
+    await grant(student);
+    const first = await post(), second = await post();
+    const ranks = async () => (await db.all<{ id: string; rank: number }>('SELECT id,rank FROM posts WHERE board_id=$1 AND section_id=$2 ORDER BY rank,created_at,id', [boardId, sectionId]));
+    const [a, b] = await ranks();
+    expect([a.id, b.id]).toEqual([first.post_id, second.post_id]); expect(b.rank - a.rank).toBe(100);
+    await db.run('UPDATE posts SET rank=2147483600 WHERE id=$1', [second.post_id]);
+    const third = await post();
+    expect((await ranks()).map(row => [row.id, row.rank])).toEqual([[first.post_id, 0], [second.post_id, 100], [third.post_id, 200]]);
+  });
   it('opening changes only supplied properties and preserves moderation, format, text and colour', async () => {
     const result = await getBoardView(teacher, boardId);
     expect(result.board).toMatchObject({ state: 'open', moderation: true, format: 'columns', title: '합성 과학 수업', description: '실제 학생 자료 없음', color: '#e2eafa' });

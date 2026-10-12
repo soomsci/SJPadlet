@@ -4,13 +4,15 @@ import { z } from 'zod';
 import type { Board, Share } from '@contracts';
 import { shareInput } from '@contracts';
 import { audit, emit, getDb, id, now, type Database } from '@db';
-import { createAnonymousSession, getPrincipal, requirePrincipal } from '@server/auth';
+import { createAnonymousSession, endSession, getPrincipal, requirePrincipal } from '@server/auth';
 import { canManage } from '@server/policy';
 import { fail, input, json } from '@server/common/http';
 
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
 const normalizeCode = (value:string) => value.replace(/[\s-]/g,'').toUpperCase();
-const joinInput = z.object({token:z.string().min(20).max(200).optional(),code:z.string().min(4).max(30).optional(),mode:z.enum(['anonymous','login']),display_name:z.string().trim().max(40).optional()}).refine(v=>Boolean(v.token)!==Boolean(v.code),'링크 또는 참여 코드 하나를 입력해주세요.');
+// Cloudflare sets CF-Connecting-IP and overwrites client copies; only a hash is kept as a short-lived rate-limit key.
+const client = (req:Request) => hash('ip:'+(req.headers.get('cf-connecting-ip')||'unknown')).slice(0,24);
+const joinInput = z.object({token:z.string().min(20).max(200).optional(),code:z.string().min(4).max(30).optional(),mode:z.enum(['anonymous','login']),display_name:z.string().trim().max(40).optional(),continue:z.boolean().optional()}).refine(v=>Boolean(v.token)!==Boolean(v.code),'링크 또는 참여 코드 하나를 입력해주세요.');
 const metadata = (share:Share) => ({id:share.id,board_id:share.board_id,target_type:share.target_type,target_id:share.target_id,scope:share.scope,expires_at:share.expires_at,revoked_at:share.revoked_at,version:share.version,created_at:share.created_at});
 
 /** Atomic DB counters also work across server instances. Raw tokens/codes never become keys. */
@@ -77,19 +79,27 @@ export async function handleShares(req:Request,segments:string[]):Promise<Respon
  if(route==='share-preview'&&req.method==='GET'){
   const url=new URL(req.url);const token=url.searchParams.get('token')||undefined;const code=url.searchParams.get('code')||undefined;
   if(Boolean(token)===Boolean(code)||(token?.length||0)>200||(code?.length||0)>30)fail(400,'INVALID_INPUT','올바른 초대를 입력해주세요.');
-  const db=await getDb();await limit(db,'share.preview.global',1200);if(code)await limit(db,'share.code.global',1200);
+  const db=await getDb(),ip=client(req);await limit(db,'share.preview.ip.'+ip,300);await limit(db,'share.preview.global',3000);if(code){await limit(db,'share.code.ip.'+ip,200);await limit(db,'share.code.global',1200);}
   const {board}=await lookup(db,token,code);
   return json({participation_mode:board.participation_mode});
  }
  if(route==='join'&&req.method==='POST'){
   const data=await input(req,joinInput);const db=await getDb();let principal=await getPrincipal(req);
-  await limit(db,principal?'share.join.'+principal.id:'share.join.anonymous',principal?90:600);
-  if(data.code)await limit(db,'share.code.global',1200);
+  // Per-client buckets first so one client cannot exhaust the school-wide backstops.
+  const ip=client(req);
+  if(principal)await limit(db,'share.join.'+principal.id,90);else{await limit(db,'share.join.ip.'+ip,200);await limit(db,'share.join.anonymous',3000);}
+  if(data.code){await limit(db,'share.code.ip.'+ip,200);await limit(db,'share.code.global',1200);}
   const initial=await lookup(db,data.token,data.code);
   if(initial.board.participation_mode==='login'&&data.mode==='anonymous')fail(403,'LOGIN_REQUIRED','이 활동은 Google 로그인이 필요합니다.');
   if(data.mode==='login'&&(!principal||principal.role==='anonymous'))fail(401,'AUTH_REQUIRED','Google 로그인 후 참여해주세요.');
   let cookie:string|undefined;
-  if(data.mode==='anonymous'&&(!principal||principal.role!=='anonymous')){const session=await createAnonymousSession(data.display_name||'익명 학생');principal=session.principal;cookie=session.cookie;}
+  // Shared classroom devices: a previous student's anonymous identity is reused only on explicit request.
+  if(data.mode==='anonymous'&&!(principal?.role==='anonymous'&&data.continue===true)){
+   if(principal?.role==='anonymous'){
+    if(await db.one('SELECT 1 FROM board_blocks WHERE board_id=$1 AND principal_id=$2',[initial.board.id,principal.id]))fail(403,'FORBIDDEN','참여가 제한되었습니다. 선생님께 문의해주세요.');
+    await endSession(db,req);
+   }
+   const session=await createAnonymousSession(data.display_name||'익명 학생');principal=session.principal;cookie=session.cookie;}
   if(!principal)fail(401,'AUTH_REQUIRED','참여 방식을 선택해주세요.');
   const participant=principal;
   const result=await db.transaction(async tx=>{
