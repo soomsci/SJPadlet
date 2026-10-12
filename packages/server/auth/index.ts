@@ -3,7 +3,8 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { OAuth2Client, CodeChallengeMethod, type TokenPayload } from 'google-auth-library';
 import { z } from 'zod';
 import type { Principal, Role } from '@contracts';
-import { getDb, id, now, audit, type Database } from '@db';
+import { getDb, id, now, audit, emit, type Database } from '@db';
+import { inTeacherGroup, teacherGroup } from './teacher-group';
 import { cookieValue, fail, input, json } from '@server/common/http';
 
 const SESSION='samjeong_session';
@@ -39,14 +40,45 @@ export function googleRole(payload:Pick<TokenPayload,'sub'|'email'|'email_verifi
  if(intent==='teacher'&&!admin&&!teacher)fail(403,'TEACHER_NOT_ADMITTED','학교 교사 명단에 등록된 계정으로 로그인해주세요. 학생은 학생 참여를 이용해주세요.');
  return admin?'admin':teacher?'teacher':'student';
 }
-/** Database admission overrides teacher env lists, while operator-managed admins remain protected. */
-export async function googleAdmissionRole(db:Database,payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>,intent:string):Promise<Role>{
+const isExactSchool=(payload:Pick<TokenPayload,'email'|'hd'>)=>{const email=(payload.email||'').toLowerCase();return email.split('@').length===2&&email.split('@')[1]==='samjeong.ms.kr'&&payload.hd==='samjeong.ms.kr';};
+/** Teacher-group membership for a verified school login: undefined = not needed/configured, null = lookup failed. */
+export async function teacherGroupMembership(payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>):Promise<boolean|null|undefined>{
+ if(!teacherGroup()||!isExactSchool(payload)||payload.email_verified!==true||googleRole(payload,'student')!=='student')return undefined;
+ try{return await inTeacherGroup(payload.email!.toLowerCase());}catch(error){console.warn('Teacher group lookup failed:',(error as Error).message);return null;}
+}
+/**
+ * Database admission overrides env lists and the teacher group, while operator-managed admins remain protected.
+ * Group membership is looked up before the caller's transaction so no lock is held during the Google API call.
+ */
+export async function googleAdmissionRole(db:Database,payload:Pick<TokenPayload,'sub'|'email'|'email_verified'|'hd'>,intent:string,groupMember?:boolean|null):Promise<Role>{
  let role=googleRole(payload,'student');
- const email=payload.email!.toLowerCase();
- const exactSchool=email.split('@').length===2&&email.split('@')[1]==='samjeong.ms.kr'&&payload.hd==='samjeong.ms.kr';
- if(role!=='admin'&&exactSchool){const admission=await db.one<{enabled:boolean}>('SELECT enabled FROM teacher_admissions WHERE email=$1',[email]);if(admission)role=admission.enabled?'teacher':'student';}
+ const exactSchool=isExactSchool(payload);
+ const admission=role!=='admin'&&exactSchool?await db.one<{enabled:boolean}>('SELECT enabled FROM teacher_admissions WHERE email=$1',[payload.email!.toLowerCase()]):null;
+ if(admission)role=admission.enabled?'teacher':'student';
+ else if(role==='student'&&exactSchool&&groupMember===true)role='teacher';
+ if(intent==='teacher'&&role==='student'&&!admission&&groupMember===null)fail(503,'TEACHER_GROUP_UNAVAILABLE','교사 그룹을 확인하지 못했습니다. 잠시 후 다시 로그인해주세요.');
  if(intent==='teacher'&&!['teacher','admin'].includes(role))fail(403,'TEACHER_NOT_ADMITTED','학교 교사 명단에 등록된 계정으로 로그인해주세요. 학생은 학생 참여를 이용해주세요.');
  return role;
+}
+/** Changes a role and ends the account's sessions so already-loaded permissions cannot outlive the change. */
+export async function applyRole(tx:Database,principalId:string,role:Role){
+ await tx.run('UPDATE principals SET role=$2 WHERE id=$1',[principalId,role]);
+ await tx.run('DELETE FROM sessions WHERE principal_id=$1',[principalId]);
+ const boards=await tx.all<{id:string}>('SELECT id FROM boards WHERE owner_id=$1 UNION SELECT board_id AS id FROM board_members WHERE principal_id=$1',[principalId]);
+ for(const board of boards)await emit(tx,board.id,'permissions');
+}
+/** Daily: demote teachers admitted only through the group who have left it. Throws on lookup failure without demoting. */
+export async function recheckTeacherGroup(db:Database):Promise<number>{
+ if(!teacherGroup()||setting('TEACHER_ADMISSION')==='domain')return 0;
+ const listed=new Set([...emails(setting('ADMIN_EMAILS')),...emails(setting('TEACHER_EMAILS')||setting('TEACHER_ALLOWLIST'))]);
+ const teachers=await db.all<{id:string;email:string}>("SELECT p.id,lower(p.email) AS email FROM principals p WHERE p.role='teacher' AND p.email IS NOT NULL AND NOT EXISTS(SELECT 1 FROM teacher_admissions a WHERE a.email=lower(p.email))");
+ let demoted=0;
+ // ponytail: one token request per teacher; fine for a school's staff list, cache the token per run if it grows.
+ for(const teacher of teachers){
+  if(listed.has(teacher.email)||await inTeacherGroup(teacher.email))continue;
+  await db.transaction(async tx=>{await applyRole(tx,teacher.id,'student');await audit(tx,'scheduled','teacher.group_revoke',teacher.id);});demoted++;
+ }
+ return demoted;
 }
 function oauthClient(){if(!googleConfigured())fail(503,'AUTH_NOT_CONFIGURED','Google 로그인이 아직 설정되지 않았습니다.');return new OAuth2Client(setting('GOOGLE_CLIENT_ID'),setting('GOOGLE_CLIENT_SECRET'),new URL('/api/auth/google/callback',appUrl()).href);}
 interface Flow {id:string;state_hash:string;nonce:string;code_verifier:string;return_to:string;intent:string;previous_principal_id:string|null;expires_at:string;}
@@ -97,8 +129,8 @@ async function callback(req:Request){
  try{const {tokens}=await client.getToken({code,codeVerifier:flow.code_verifier});if(!tokens.id_token)throw new Error('Missing identity token');const ticket=await client.verifyIdToken({idToken:tokens.id_token,audience:setting('GOOGLE_CLIENT_ID')});payload=ticket.getPayload();}catch{fail(403,'GOOGLE_AUTH_FAILED','Google 인증을 확인하지 못했습니다. 다시 로그인해주세요.');}
  const nonce=(payload as TokenPayload&{nonce?:string})?.nonce;
  if(!payload||!nonce||nonce.length!==flow.nonce.length||!timingSafeEqual(Buffer.from(nonce),Buffer.from(flow.nonce)))fail(403,'INVALID_OAUTH_NONCE','Google 인증 요청이 일치하지 않습니다.');
- const email=payload.email!.toLowerCase();
- const result=await db.transaction(async tx=>{await tx.run('LOCK TABLE teacher_admissions IN SHARE ROW EXCLUSIVE MODE');const role=await googleAdmissionRole(tx,payload!,flow.intent);let principal=await tx.one<Principal>('SELECT * FROM principals WHERE provider_subject=$1 FOR UPDATE',[payload!.sub]);if(principal?.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
+ const email=payload.email!.toLowerCase(),groupMember=await teacherGroupMembership(payload);
+ const result=await db.transaction(async tx=>{await tx.run('LOCK TABLE teacher_admissions IN SHARE ROW EXCLUSIVE MODE');const role=await googleAdmissionRole(tx,payload!,flow.intent,groupMember);let principal=await tx.one<Principal>('SELECT * FROM principals WHERE provider_subject=$1 FOR UPDATE',[payload!.sub]);if(principal?.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
  if(principal){await tx.run('UPDATE principals SET display_name=$2,email=$3,role=$4 WHERE id=$1',[principal.id,(payload!.name||'학생').slice(0,80),email,role]);principal={...principal,display_name:(payload!.name||'학생').slice(0,80),email,role};}
  else{principal={id:id(),role,display_name:(payload!.name||'학생').slice(0,80),email,provider_subject:payload!.sub,disabled_at:null,created_at:now()};await tx.run('INSERT INTO principals(id,role,display_name,email,provider_subject,created_at) VALUES($1,$2,$3,$4,$5,$6)',[principal.id,role,principal.display_name,email,principal.provider_subject,principal.created_at]);}
  if(flow.intent==='link')await linkAnonymous(tx,previous!,principal);
