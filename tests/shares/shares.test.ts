@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Board, Principal, ShareResult } from '@contracts';
 import { getDb, id, now } from '@db';
 import { handleShares } from '@server/shares';
@@ -74,6 +74,9 @@ describe('sharing and student participation',()=>{
  });
 });
 describe('shared classroom devices and per-client limits',()=>{
+ it('prints the short SHARE_URL host in links while keeping the same /s/ path',async()=>{
+  vi.stubEnv('SHARE_URL','https://sjmoa.pages.dev');try{const share=await create();expect(share.url).toMatch(/^https:\/\/sjmoa\.pages\.dev\/s\/[A-Za-z0-9_-]{43}$/);}finally{vi.unstubAllEnvs();}
+ });
  const cookieOf=(response:Response|null)=>response!.headers.get('Set-Cookie')!.split(';')[0];
  const join=(body:Record<string,unknown>,cookie?:string,ip?:string)=>{const req=request('join',body,cookie);if(ip)req.headers.set('cf-connecting-ip',ip);return handleShares(req,['join']);};
  it('starts a new anonymous identity by default on a device and ends the previous student session',async()=>{

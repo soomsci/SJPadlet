@@ -21,6 +21,7 @@
   },
   "vars": {
     "APP_URL": "https://samjeong-moa.samjeong-moa.workers.dev",
+    "SHARE_URL": "https://sjmoa.pages.dev",
     "TEACHER_ADMISSION": "allowlist",
     "TEACHER_EMAILS": "xopowok08@samjeong.ms.kr",
     "ADMIN_EMAILS": "xopowok08@samjeong.ms.kr",
