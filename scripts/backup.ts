@@ -1,0 +1,5 @@
+import { getDb } from '../packages/db';
+import { snapshot,restore } from '../packages/db/backup';
+import { writeFile,readFile,mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+async function main(){const db=await getDb();if(process.argv[2]==='restore'){const file=process.argv[3];if(!file||process.argv[4]!=='--confirm-replace')throw new Error('Usage: npm run db:restore -- <backup.json> --confirm-replace (replaces all database data)');await restore(db,JSON.parse(await readFile(resolve(file),'utf8')));console.log('Database restored. Restore private upload storage separately.');}else{const backup=await snapshot(db);const directory=resolve(process.cwd(),'.data/backups');await mkdir(directory,{recursive:true});const path=resolve(directory,`backup-${Date.now()}.json`);await writeFile(path,JSON.stringify(backup),{mode:0o600});console.log('Database backup saved:',path);console.log('Copy private upload storage separately. Keep the backup private.');}process.exit(0);}main().catch(e=>{console.error(e instanceof Error?e.message:'Backup failed');process.exit(1);});

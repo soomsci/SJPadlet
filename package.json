@@ -1,0 +1,41 @@
+{
+  "name": "samjeong-board",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev apps/web --hostname 0.0.0.0",
+    "build": "next build apps/web --webpack",
+    "start": "next start apps/web --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint apps packages tests scripts",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "db:backup": "tsx scripts/backup.ts",
+    "db:restore": "tsx scripts/backup.ts restore"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "google-auth-library": "^10.5.0",
+    "lucide-react": "^0.562.0",
+    "next": "^16.1.0",
+    "pg": "^8.16.3",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/pg": "^8.16.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16",
+    "typescript-eslint": "^8.71.1",
+    "eslint-plugin-react-hooks": "^7.0.1"
+  },
+  "type": "module"
+}
