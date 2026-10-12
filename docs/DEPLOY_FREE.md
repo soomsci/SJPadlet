@@ -1,8 +1,10 @@
 # Cloudflare + Supabase 무료 시범 배포
 
-2026-10-12. Cloudflare 계정/CLI 연결, 무료 주소 등록, 캐시를 끈 Hyperdrive 생성, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth·DB 접속 정보·서버용 Storage secret은 로컬에 입력됐으며 ES256 서명 키의 원격 등록/활성화를 확인했다. Worker 업로드는 계정 이메일 미인증 오류 10034로 거부됐다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+2026-10-12. **무료 시범 배포 완료.** 계정 이메일 인증 후 Cloudflare Worker/정적 화면이 배포됐고 상태 API `ok`, 홈페이지, 학교 관리자 Google 로그인, 대시보드/관리 화면과 첫 게시판 생성을 실제 브라우저에서 확인했다. 학생 Google/익명 참여·실시간 변경·사진·학교망 수업 검증은 별도로 남아 있다. 유료 플랜·유료 리소스·사용자 지정 도메인은 구매하지 않았다.
 
-현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 배포 예정 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 주소 등록은 Worker 배포 완료를 뜻하지 않는다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
+현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
+
+현재 위 앱 주소로 Worker가 배포됐다. 실제 Hyperdrive ID는 `4aefb96597d041fd946279e05aa23cd7`이고 대상 DB·캐시 비활성화를 원격 API로 확인했다. `workers_dev=true`, `preview_urls=false`를 유지한다. 버전별 미리보기 URL 비활성화 경고는 운영 주소 오류가 아니며, 해당 경고를 없애기 위해 설정을 켤 필요는 없다. [버전별 URL 설정](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/).
 
 ## 구조
 
@@ -77,7 +79,7 @@ Hyperdrive는 연결 풀만 사용한다. [Supabase 연결 가이드](https://de
 
 `wrangler.jsonc`의 `account_id`, `APP_URL`, 교사/관리자 명단은 현재 연결된 계정과 사용자 지시를 반영했다. Hyperdrive ID, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`는 실제 값을 넣어야 한다. 비밀키나 DB 암호는 이 파일에 넣지 않는다. 나머지 placeholder가 있으면 배포가 중단되며 자동 리소스 생성은 하지 않는다.
 
-재개 후 `SUPABASE_URL`과 publishable key도 확인된 프로젝트 값으로 반영했다. Hyperdrive ID는 아직 placeholder다.
+재개 후 `SUPABASE_URL`과 publishable key도 확인된 프로젝트 값으로 반영했다. 현재 Hyperdrive ID는 생성된 실제 리소스 값이며 placeholder가 아니다.
 
 ### 서버 비밀값 입력 위치
 
@@ -154,7 +156,7 @@ npm run check
 npm run deploy:free
 ```
 
-`deploy:free`는 placeholder와 필수 설정을 먼저 검사한다. 이어 전체 검사, 원격 Hyperdrive 캐시 설정, 필수 secret 이름을 확인한 뒤 정적 화면과 Worker를 배포한다. 최초 설정 스크립트에서 secret 파일을 전달하면 기존 Worker가 없어도 필수 secret을 함께 배포한다. 원격 설정 조회 결과 전체나 비밀값을 로그에 출력하지 않는다. Hyperdrive ID가 없는 현재 상태에서는 독립 실행이 배포 전에 중단된다. `cf:dry-run` 성공은 패키지 검증이며 원격 DB·Storage·Realtime·실제 로그인 검증은 아니다.
+`deploy:free`는 placeholder와 필수 설정을 먼저 검사한다. 이어 전체 검사, 원격 Hyperdrive 캐시 설정, 필수 secret 이름을 확인한 뒤 정적 화면과 Worker를 배포한다. 최초 설정 스크립트에서 secret 파일을 전달하면 기존 Worker가 없어도 필수 secret을 함께 배포한다. 원격 설정 조회 결과 전체나 비밀값을 로그에 출력하지 않는다. 현재 배포된 리소스에는 CLI 인증이 있는 일반 터미널에서 재배포할 수 있다. `cf:dry-run` 성공은 패키지 검증이며 원격 DB·Storage·Realtime·실제 로그인 검증은 아니다.
 
 `check`에 포함된 `cf:smoke`는 생성된 번들을 실제 workerd 엔진에서 불러와 상태 API·정적 파일 라우팅·무료 업로드 제한·교차 출처 요청 차단을 검사한다. 소켓을 열거나 원격 DB에 연결하지 않는다. 브라우저 및 외부 서비스 통합 검증과는 별개다.
 
