@@ -26,8 +26,8 @@
     "ADMIN_EMAILS": "xopowok08@samjeong.ms.kr",
     "FREE_TIER_MODE": "true",
     "MEDIA_BACKEND": "supabase",
-    "SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
-    "SUPABASE_PUBLISHABLE_KEY": "",
+    "SUPABASE_URL": "https://oxaggbmvughcdxsuhlpd.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_VsAn9gVLEFPFy3NNDAMu_w_u56WEmM8",
     "SUPABASE_STORAGE_BUCKET": "classroom-images"
   },
   "hyperdrive": [

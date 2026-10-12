@@ -51,6 +51,16 @@
 
 브라우저·휴대전화·학교 Google 실제 계정·원격 Supabase DB/Storage/Realtime·학교망·파일 포함 운영 복원은 아직 검증하지 못했다. 로컬 서버 포트가 차단되어 브라우저 검증을 수행하지 못했다. 최초 Cloudflare 연결 실패 후 재개 시 **공식 스킬 설치와 MCP 인증을 확인**했다. 계정·Worker/Hyperdrive 목록 조회 및 `samjeong-moa.workers.dev` 계정 주소 등록을 완료했다. 실제 앱 Worker는 아직 배포하지 않았다. 첫 관리자/허용 교사는 `xopowok08@samjeong.ms.kr`로 설정했다. 구독/결제 조회는 인증 오류로 거부됐으며 플랜 변경·유료 리소스 생성은 하지 않았다. Wrangler CLI는 별도 인증이 필요하다. Supabase 연결 정보와 Google OAuth 클라이언트는 아직 코드에 연결되지 않았다. `.env.free` 비공개 입력 템플릿과 Google OAuth 설정 순서를 준비했다.
 
+## Supabase 연결과 초기 DB 적용
+
+2026-10-12 재개 후 플러그인 관리 화면에는 계정 연결이 표시됐으나 첫 API 호출은 인증 오류를 반환했다. 이후 재조회가 성공했으므로 설치/연결을 다시 요구하지 않는다. `SJPadlet` 조직(`butrqvcqkaspjlzmgrgi`)의 Free 플랜과 서울 리전 프로젝트 `oxaggbmvughcdxsuhlpd`를 확인했다.
+
+기존 public 테이블·Storage 버킷·앱 마이그레이션이 없는 것을 확인하고 MCP로 초기 SQL을 적용했다. 앱 테이블 19개 모두 RLS 활성, anon/authenticated 직접 테이블 권한 0, 비공개 `classroom-images` 버킷의 1MB 및 JPG/PNG/WebP 제한, Realtime 수신 정책과 outbox 트리거를 원격 쿼리로 확인했다. CLI 마이그레이션 스크립트와 중복 적용을 방지하기 위한 `moa_migrations` 체크섬 기록도 추가했다.
+
+Supabase 보안 advisor에는 오류/경고가 없었으며, 앱 테이블의 정책 미설정 INFO는 직접 접근을 의도적으로 차단하는 설계에 따른다. [RLS 정책 없는 테이블 안내](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+
+프로젝트 URL/publishable key는 Worker 설정과 Git 제외 `.env.free`에 저장했다. Google ID/secret 입력 존재와 ID 형식은 확인했으나 실제 로그인은 미검증이다. 서버용 Supabase secret, DB 접속 암호/주소, 서명 키 가져오기·활성화, Hyperdrive와 원격 Worker 배포는 아직 남아 있다. 로컬 서명 키 파일은 생성했으며 원격 등록 완료로 간주하지 않는다.
+
 ## 다음 완료 조건
 
 1. 별도 Wrangler CLI 로그인과 전용 Supabase·Google 클라이언트·비밀값 연결을 완료해 시범 배포. MCP 연결과 첫 관리자 명단 설정은 확인 완료.

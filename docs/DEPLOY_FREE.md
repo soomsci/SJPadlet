@@ -1,6 +1,6 @@
 # Cloudflare + Supabase 무료 시범 배포
 
-2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록은 완료했다. Supabase 연결 정보·Google OAuth 비밀값과 실제 서비스 배포는 아직 준비 중이다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth 값은 로컬에 입력되어 있다. DB 접속 정보·서버용 Storage secret·서명 키 등록과 실제 Worker 배포는 아직 준비 중이다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
 
 현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 배포 예정 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 주소 등록은 Worker 배포 완료를 뜻하지 않는다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
 
@@ -58,6 +58,8 @@ Wrangler 검증 시 홈 디렉터리 로그 쓰기를 피하기 위해 `.tooling
 
 ## 3. Supabase DB 적용
 
+현재 프로젝트 `oxaggbmvughcdxsuhlpd`는 `SJPadlet` Free 조직의 서울 리전에 있다. 이 프로젝트에는 MCP를 통해 초기 SQL과 `moa_migrations` 체크섬 기록이 이미 적용됐다. 앱 테이블 RLS·직접 클라이언트 권한 회수·비공개 버킷·Realtime 정책/트리거를 원격 쿼리로 확인했다. 아래 CLI 절차는 새 프로젝트 또는 체크섬 확인에 사용하며 같은 초기 SQL을 수동으로 반복 적용하지 않는다.
+
 DB 접속 주소는 Supabase Connect에서 얻는다. DB 마이그레이션에만 쓸 `DATABASE_URL`을 Git에서 제외된 `.env.free`에 저장한다. 인증서 검증을 끄지 않는다. Node에서 전용 DB에 접속 가능한 환경에서 실행한다.
 
 ```sh
@@ -74,6 +76,14 @@ Cloudflare에서 Supabase DB를 가리키는 Hyperdrive를 만든다. 연결 정
 Hyperdrive는 연결 풀만 사용한다. [Supabase 연결 가이드](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/), [권한 조회와 캐시 설정](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/).
 
 `wrangler.jsonc`의 `account_id`, `APP_URL`, 교사/관리자 명단은 현재 연결된 계정과 사용자 지시를 반영했다. Hyperdrive ID, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`는 실제 값을 넣어야 한다. 비밀키나 DB 암호는 이 파일에 넣지 않는다. 나머지 placeholder가 있으면 배포가 중단되며 자동 리소스 생성은 하지 않는다.
+
+재개 후 `SUPABASE_URL`과 publishable key도 확인된 프로젝트 값으로 반영했다. Hyperdrive ID는 아직 placeholder다.
+
+### 서버 비밀값 입력 위치
+
+프로젝트 상단 **Connect → Session pooler → URI**에서 DB 주소를 복사한다. `[YOUR-PASSWORD]`는 이 프로젝트를 만들 때 정한 DB 비밀번호로 바꿔 `.env.free`의 `DATABASE_URL=`에 저장한다. API secret과 DB 비밀번호는 서로 다른 값이다. 비밀번호에 URL 특수문자가 있으면 해당 비밀번호 부분을 URL 인코딩해야 한다. 인증서 검증을 끄는 옵션은 사용하지 않는다.
+
+[Settings → API Keys](https://supabase.com/dashboard/project/oxaggbmvughcdxsuhlpd/settings/api-keys)의 **Secret keys**에서 서버용 `sb_secret_…` 값을 복사해 `.env.free`의 `SUPABASE_SECRET_KEY=`에 저장한다. publishable key는 이미 입력했다. 두 비밀값은 채팅·Git에 넣지 않는다. [DB 연결 가이드](https://supabase.com/docs/guides/database/connecting-to-postgres), [API 키 종류](https://supabase.com/docs/guides/getting-started/api-keys).
 
 ## 5. 실시간 서명 키와 Worker secrets
 
