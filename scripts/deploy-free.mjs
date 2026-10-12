@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+const secretsFlag = process.argv.indexOf('--secrets-file');
+const secretsPath = secretsFlag >= 0 ? process.argv[secretsFlag + 1] : undefined;
 const problems = [];
 if (!config.account_id) problems.push('Cloudflare account_id');
 if (!config.hyperdrive?.[0]?.id || /^0+$/.test(config.hyperdrive[0].id)) problems.push('Hyperdrive ID');
@@ -34,6 +36,11 @@ const database = inspect(['hyperdrive','get',config.hyperdrive[0].id]);
 if (database.id !== config.hyperdrive[0].id || database.caching?.disabled !== true) {
   throw new Error('Hyperdrive 쿼리 캐시를 비활성화해야 합니다. 권한 회수 후 오래된 정보가 반환될 수 있습니다.');
 }
-const secrets = inspect(['secret','list']);
-if (!config.secrets.required.every(name => secrets.some(secret => secret.name === name))) throw new Error('필수 Worker secret 설정이 누락되었습니다.');
-run(['exec','--','wrangler','deploy']);
+if (secretsPath) {
+  const secrets = JSON.parse(readFileSync(secretsPath, 'utf8'));
+  if (!config.secrets.required.every(name => typeof secrets[name] === 'string' && secrets[name])) throw new Error('필수 Worker secret 설정이 누락되었습니다.');
+} else {
+  const secrets = inspect(['secret','list']);
+  if (!config.secrets.required.every(name => secrets.some(secret => secret.name === name))) throw new Error('필수 Worker secret 설정이 누락되었습니다.');
+}
+run(['exec','--','wrangler','deploy', ...(secretsPath ? ['--secrets-file', secretsPath] : [])]);

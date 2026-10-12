@@ -41,7 +41,7 @@
 
 ## 검증 기록
 
-최초 통합에서 테스트 60개와 Next.js 빌드가 통과했다. 무료 배포 전환 후 웹/Worker 타입 검사 오류 0, 린트 경고/오류 0, 자동 테스트 **71개 통과**(기존 60 + 무료 호스팅 8 + Supabase 정책 3), Vite 정적 빌드와 Worker dry-run이 통과했다. 기존 Next.js 프로덕션 빌드도 별도로 통과했다. npm 의존성 감사 결과 취약점 0개.
+최초 통합에서 테스트 60개와 Next.js 빌드가 통과했다. 무료 배포 전환과 최초 배포 스크립트 추가 후 웹/Worker 타입 검사 오류 0, 린트 경고/오류 0, 자동 테스트 **75개 통과**(기존 60 + 무료 호스팅 8 + Supabase 정책 3 + 배포 설정 4), Vite 정적 빌드와 Worker dry-run이 통과했다. 배포 설정 테스트는 다른 프로젝트로의 비밀값 전송 차단, 필수 네 개 secret만 전달, 예시/잘못된 키 거부, 원격 출력 파싱 시 비밀값 노출 방지를 검사한다. 기존 Next.js 프로덕션 빌드도 별도로 통과했다. npm 의존성 감사 결과 취약점 0개.
 
 생성한 Worker 번들을 실제 workerd 엔진에서 실행하는 `cf:smoke`도 통과했다. 상태 API·정적 파일 라우팅·설정과 무관한 무료 업로드 제한·보안 헤더·교차 출처 차단을 검사한다. 소켓이나 실제 원격 자격 증명을 사용하지 않는다. placeholder 상태의 `deploy:free`는 원격 변경 전에 중단됨을 확인했다.
 
@@ -59,7 +59,9 @@
 
 Supabase 보안 advisor에는 오류/경고가 없었으며, 앱 테이블의 정책 미설정 INFO는 직접 접근을 의도적으로 차단하는 설계에 따른다. [RLS 정책 없는 테이블 안내](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
 
-프로젝트 URL/publishable key는 Worker 설정과 Git 제외 `.env.free`에 저장했다. Google ID/secret 입력 존재와 ID 형식은 확인했으나 실제 로그인은 미검증이다. 사용자가 DB 주소/비밀번호와 서버용 Supabase secret을 입력했고, 대상 프로젝트 주소·예시 비밀번호 교체·서버 키 형식을 확인했다. 이 실행 환경에서는 DB/Storage 연결 테스트가 DNS `ENOTFOUND`로 중단돼 실제 자격 증명 유효성을 검증했다고 간주하지 않는다. 서명 키 가져오기·활성화, Hyperdrive와 원격 Worker 배포는 아직 남아 있다. 로컬 서명 키 파일은 생성했으며 원격 등록 완료로 간주하지 않는다.
+프로젝트 URL/publishable key는 Worker 설정과 Git 제외 `.env.free`에 저장했다. Google ID/secret 입력 존재와 ID 형식은 확인했으나 실제 로그인은 미검증이다. 사용자가 DB 주소/비밀번호와 서버용 Supabase secret을 입력했고, 대상 프로젝트 주소·예시 비밀번호 교체·서버 키 형식을 확인했다. 이 실행 환경에서는 DB/Storage 연결 테스트가 DNS `ENOTFOUND`로 중단돼 실제 자격 증명 유효성을 검증했다고 간주하지 않는다.
+
+사용자가 서명 키를 가져온 뒤 회전했고, Supabase JWT 화면의 CURRENT KEY가 로컬 키 ID `f3e4a699-fcab-43fa-96f9-8fd8fdf8c42d`와 일치하는 ES256 키임을 확인했다. `deploy:setup`에 로컬 입력 검증, 원격 공개키 일치·비공개 버킷 검사, 캐시 비활성 Hyperdrive 생성/재사용, 필수 secret 동시 배포, 상태/DB 로그인 시작 API 검증을 추가했다. 로컬 설정 검증은 통과했고 실제 실행은 별도 Wrangler CLI 미로그인으로 외부 변경 전에 중단됐다. 일반 터미널의 `cf:login`과 `deploy:setup` 실행이 필요하다. Hyperdrive와 원격 Worker 배포는 아직 미완료다.
 
 ## 다음 완료 조건
 

@@ -1,6 +1,6 @@
 # Cloudflare + Supabase 무료 시범 배포
 
-2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth 값은 로컬에 입력되어 있다. DB 접속 정보·서버용 Storage secret·서명 키 등록과 실제 Worker 배포는 아직 준비 중이다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth·DB 접속 정보·서버용 Storage secret은 로컬에 입력됐으며 ES256 서명 키의 원격 등록/활성화를 확인했다. Hyperdrive와 실제 Worker 배포는 아직 완료하지 않았다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
 
 현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 배포 예정 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 주소 등록은 Worker 배포 완료를 뜻하지 않는다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
 
@@ -126,13 +126,33 @@ Supabase Realtime 설정은 private 채널만 허용하는 옵션을 활성화�
 
 ## 6. 검증과 배포
 
+### 현재 준비된 프로젝트의 최초 배포
+
+Google·DB·Storage 입력과 서명 키 등록을 끝냈다면 일반 터미널에서 다음을 실행한다. CLI 로그인은 현재 실행 환경에서 콜백 포트를 열 수 없어 사용자의 일반 터미널에서 진행해야 한다.
+
+```sh
+cd /Users/minsu/dev/padlet
+npm run cf:login
+npm run deploy:setup
+```
+
+`deploy:setup`은 `.env.free`와 `.data/realtime-signing.jwk`를 읽는다. 키를 다시 복사하거나 비밀번호를 명령 인수로 전달하지 않는다. Cloudflare 계정, Supabase 공개 JWKS의 키 ID/공개키 일치, 서버 키로 접근한 비공개 버킷/1MB 한도를 확인한다. 다른 프로젝트 DB 주소와 예시 비밀번호는 거부한다.
+
+이후 `samjeong-moa-db` Hyperdrive를 캐시 비활성·원본 연결 5개로 생성한다. 기본 TLS는 WebPKI 인증서를 검증한다. 이름이 같은 기존 리소스는 대상 DB와 캐시 설정이 일치할 때만 재사용하고 자동으로 변경하지 않는다. 실제 ID를 `wrangler.jsonc`에 기록한다. 플랜 변경·결제·유료 도메인 생성 API는 호출하지 않는다.
+
+전체 검사 후 필요한 Worker secrets 네 개만 0600 권한의 Git 제외 임시 파일로 묶어 `wrangler deploy --secrets-file`에 전달한다. DB 암호와 Cloudflare 인증 토큰은 이 파일에 포함하지 않는다. 성공/오류 종료 시 임시 파일을 삭제한다. 배포 후 상태 API와 DB를 사용하는 Google 로그인 시작 리디렉션을 확인하지만 학교 계정의 로그인 완료·학생 QR·실시간 활동 검증은 별도다.
+
+`npm run deploy:setup -- --validate-only`는 외부 전송/변경 없이 로컬 설정만 확인한다. 현재 환경에서는 이 검사만 통과했으며 실제 모드는 CLI 미로그인으로 원격 리소스 생성 전에 중단됐다. [인증 토큰의 안전한 스크립트 사용](https://developers.cloudflare.com/workers/wrangler/commands/general/#auth-token), [코드와 secret 동시 배포](https://developers.cloudflare.com/workers/configuration/secrets/#upload-secrets-alongside-code), [Hyperdrive TLS](https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/).
+
+### 이미 연결된 리소스에 재배포
+
 ```sh
 npm run cf:types
 npm run check
 npm run deploy:free
 ```
 
-`deploy:free`는 placeholder와 필수 설정을 먼저 검사한다. 이어 전체 검사, 원격 Hyperdrive 캐시 설정, 필수 secret 이름을 확인한 뒤 정적 화면과 Worker를 배포한다. 원격 설정 조회 결과 전체나 비밀값을 로그에 출력하지 않는다. 실제 값이 없는 지금 실행하면 배포 전에 중단된다. `cf:dry-run` 성공은 패키지 검증이며 원격 DB·Storage·Realtime·실제 로그인 검증은 아니다.
+`deploy:free`는 placeholder와 필수 설정을 먼저 검사한다. 이어 전체 검사, 원격 Hyperdrive 캐시 설정, 필수 secret 이름을 확인한 뒤 정적 화면과 Worker를 배포한다. 최초 설정 스크립트에서 secret 파일을 전달하면 기존 Worker가 없어도 필수 secret을 함께 배포한다. 원격 설정 조회 결과 전체나 비밀값을 로그에 출력하지 않는다. Hyperdrive ID가 없는 현재 상태에서는 독립 실행이 배포 전에 중단된다. `cf:dry-run` 성공은 패키지 검증이며 원격 DB·Storage·Realtime·실제 로그인 검증은 아니다.
 
 `check`에 포함된 `cf:smoke`는 생성된 번들을 실제 workerd 엔진에서 불러와 상태 API·정적 파일 라우팅·무료 업로드 제한·교차 출처 요청 차단을 검사한다. 소켓을 열거나 원격 DB에 연결하지 않는다. 브라우저 및 외부 서비스 통합 검증과는 별개다.
 
