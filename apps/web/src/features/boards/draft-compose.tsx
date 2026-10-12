@@ -70,6 +70,12 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
   }, []);
   const sectionMissing = !!content.section_id && !view.sections.some(item => item.id === content.section_id);
   const update = (change: Partial<Content>) => setContent(current => ({ ...current, ...change }));
+  // The scheme is shown as a fixed prefix; typed or pasted "http(s)://" (even doubled) is folded into it.
+  const linkScheme = /^http:\/\//i.test(content.link) ? 'http://' : 'https://';
+  const setLink = (value: string) => {
+    const pasted = value.match(/^\s*(https?):\/\//i), rest = value.replace(/^\s*(https?:\/\/)+/i, '').trim();
+    update({ link: rest ? (pasted ? `${pasted[1].toLowerCase()}://` : linkScheme) + rest : '' });
+  };
   const leave = async (minimize: boolean) => {
     if (busy || uploading || loading) return;
     setBusy(true);
@@ -118,7 +124,7 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
       <label className="field board-compose-title">제목<input ref={titleInput} className="input" autoComplete="off" required maxLength={200} disabled={busy || !view.can_write} value={content.title} onChange={event => update({ title: event.target.value })} placeholder="어떤 생각을 발견했나요?" /></label>
       <label className="field board-compose-body">내용<textarea className="textarea" rows={6} maxLength={10000} disabled={busy || !view.can_write} value={content.body} onChange={event => update({ body: event.target.value })} placeholder="생각, 질문, 발견을 자유롭게 적어주세요." /></label>
       {sectionMissing && <Notice>이 초안의 섹션이 삭제되었습니다. 내용은 유지됩니다. 새 섹션을 선택해주세요.</Notice>}
-      <div className="boards-form-row"><label className="field">섹션<select className="select" value={content.section_id ?? ''} disabled={busy || !view.can_write || (!!sectionId && !view.can_manage && !sectionMissing)} onChange={event => update({ section_id: event.target.value || null })}>{sectionMissing && <option value={content.section_id!}>삭제된 섹션 · 위치 선택 필요</option>}<option value="">미분류</option>{view.sections.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label className="field">참고 링크<input className="input" type="url" disabled={busy || !view.can_write} value={content.link} onChange={event => update({ link: event.target.value })} placeholder="https://" /></label></div>
+      <div className="boards-form-row"><label className="field">섹션<select className="select" value={content.section_id ?? ''} disabled={busy || !view.can_write || (!!sectionId && !view.can_manage && !sectionMissing)} onChange={event => update({ section_id: event.target.value || null })}>{sectionMissing && <option value={content.section_id!}>삭제된 섹션 · 위치 선택 필요</option>}<option value="">미분류</option>{view.sections.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label className="field">참고 링크<span className="input draft-link"><span aria-hidden="true">{linkScheme}</span><input type="text" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={busy || !view.can_write} value={content.link.replace(/^https?:\/\//i, '')} onChange={event => setLink(event.target.value)} placeholder="주소 붙여넣기" /></span></label></div>
       <label className="field">카드 색<input type="color" disabled={busy || !view.can_write} value={content.color} onChange={event => update({ color: event.target.value })} /></label>
       <label className="boards-upload"><Paperclip size={18} />{uploading ? '업로드 중…' : policy?.images_only ? '이미지 첨부 · 자동 압축' : '파일 첨부'}<input type="file" multiple accept={policy?.images_only ? 'image/jpeg,image/png,image/webp' : undefined} aria-label="첨부 파일 선택" disabled={!policy || !view.can_write || busy || uploading || files.length >= 5} onChange={event => { void upload(event.target.files); event.target.value = ''; }} /><small>{policy ? `파일당 최대 ${policy.max_bytes / 1024 ** 2}MB · 5개까지` : '설정 확인 중…'}</small></label>
       <label className="boards-upload draft-camera"><Camera size={18} />사진 찍기<input type="file" accept="image/*" capture="environment" aria-label="카메라로 사진 찍기" disabled={!policy || !view.can_write || busy || uploading || files.length >= 5} onChange={event => { void upload(event.target.files); event.target.value = ''; }} /></label>

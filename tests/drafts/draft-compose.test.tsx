@@ -12,6 +12,17 @@ function setup(draftId?: string) { const onClose=vi.fn(),onSaved=vi.fn(),onMinim
 beforeEach(()=>{mockedApi.mockReset();mockedApi.mockImplementation(async (path, init) => { if(path==='/api/upload-policy') return {images_only:true,max_bytes:1048576};if(init?.method==='PUT'){const payload=JSON.parse(init.body as string);return makeDraft({...payload,version:payload.version+1,id:path.split('/').at(-1)});}if(init?.method==='POST')return{view};if(init?.method==='DELETE')return{deleted:true};return makeDraft();});});
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();});
 describe('durable compose drafts',()=>{
+ it('shows https:// as a fixed prefix and folds a typed or pasted scheme into it',async()=>{
+  const {onMinimize}=setup();await screen.findByText('이미지 첨부 · 자동 압축');
+  fireEvent.change(screen.getByRole('textbox',{name:'제목'}),{target:{value:'링크 합성 제목'}});
+  const link=screen.getByRole('textbox',{name:'참고 링크'}) as HTMLInputElement;
+  fireEvent.change(link,{target:{value:'example.com/a'}});expect(link.value).toBe('example.com/a');
+  fireEvent.change(link,{target:{value:' https://https://example.com/b'}});expect(link.value).toBe('example.com/b');
+  fireEvent.click(screen.getByRole('button',{name:'최소화'}));
+  await waitFor(()=>expect(onMinimize).toHaveBeenCalledOnce());expect(onMinimize.mock.calls[0][0]).toMatchObject({link:'https://example.com/b'});
+  fireEvent.change(link,{target:{value:'http://intranet.example/c'}});expect(link.value).toBe('intranet.example/c');expect(link.parentElement!.textContent).toContain('http://');
+  fireEvent.change(link,{target:{value:''}});expect(link.parentElement!.textContent).toContain('https://');
+ });
  it('saves before minimizing and passes the durable ID and content to the workspace',async()=>{
   const storageWrite=vi.fn();vi.stubGlobal('localStorage',{setItem:storageWrite});
   const {onClose,onMinimize}=setup();await screen.findByText('이미지 첨부 · 자동 압축');fireEvent.change(screen.getByRole('textbox',{name:'제목'}),{target:{value:'최소화 전 합성 제목'}});fireEvent.click(screen.getByRole('button',{name:'최소화'}));
