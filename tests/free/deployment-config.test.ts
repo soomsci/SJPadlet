@@ -32,6 +32,7 @@ describe('deployment secrets and database target', () => {
   });
   it('reads structured Wrangler output without including raw output in errors', () => {
     expect(parseCommandJson('Wrangler [notice]\n{"type":"oauth","token":"fake"}\n')).toEqual({ type:'oauth', token:'fake' });
+    expect(parseCommandJson('\u001b[90mWrangler\u001b[0m\n{"caching":{"disabled":true}}\n')).toEqual({ caching: { disabled:true } });
     expect(() => parseCommandJson('sensitive-invalid-output')).toThrow('명령 결과를 확인하지 못했습니다.');
   });
 });

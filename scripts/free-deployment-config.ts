@@ -9,6 +9,7 @@ export interface FreeConfig {
   secrets: { required: string[] };
 }
 export function parseCommandJson(output: string): unknown {
+  output = output.replace(/\u001b\[[0-9;]*m/g, '');
   for (let index = 0; index < output.length; index++) {
     if (!['{', '['].includes(output[index])) continue;
     try { return JSON.parse(output.slice(index).trim()); } catch { /* Try the next JSON boundary. */ }

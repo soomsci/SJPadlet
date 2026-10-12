@@ -20,7 +20,7 @@
     "cf:smoke": "node scripts/smoke-worker.mjs",
     "cf:whoami": "wrangler whoami",
     "cf:login": "wrangler login",
-    "deploy:free": "node scripts/deploy-free.mjs",
+    "deploy:free": "node --import tsx scripts/deploy-free.mjs",
     "deploy:setup": "node --import tsx scripts/setup-free-deployment.ts",
     "db:migrate:free": "node --import tsx scripts/migrate-free.ts",
     "db:generate:free": "node --import tsx scripts/generate-free-migration.ts",

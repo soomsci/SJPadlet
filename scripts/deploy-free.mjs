@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { parseCommandJson } from './free-deployment-config.ts';
 const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
 const secretsFlag = process.argv.indexOf('--secrets-file');
 const secretsPath = secretsFlag >= 0 ? process.argv[secretsFlag + 1] : undefined;
@@ -27,10 +28,7 @@ function inspect(args) {
     encoding: 'utf8', env: { ...process.env, WRANGLER_WRITE_LOGS: 'false', WRANGLER_LOG: 'log', WRANGLER_LOG_SANITIZE: 'true', WRANGLER_SEND_METRICS: 'false' },
   });
   if (result.status !== 0) throw new Error('Cloudflare 설정을 확인하지 못했습니다. 계정 로그인과 권한을 확인해주세요.');
-  const text = result.stdout;
-  const object = text.indexOf('{'), array = text.indexOf('[');
-  const start = Math.min(...[object,array].filter(index => index >= 0));
-  return JSON.parse(text.slice(start));
+  return parseCommandJson(result.stdout);
 }
 const database = inspect(['hyperdrive','get',config.hyperdrive[0].id]);
 if (database.id !== config.hyperdrive[0].id || database.caching?.disabled !== true) {

@@ -1,6 +1,6 @@
 # Cloudflare + Supabase 무료 시범 배포
 
-2026-10-12. Cloudflare MCP 계정 연결 및 무료 주소 등록, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth·DB 접속 정보·서버용 Storage secret은 로컬에 입력됐으며 ES256 서명 키의 원격 등록/활성화를 확인했다. Hyperdrive와 실제 Worker 배포는 아직 완료하지 않았다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
+2026-10-12. Cloudflare 계정/CLI 연결, 무료 주소 등록, 캐시를 끈 Hyperdrive 생성, Supabase Free 프로젝트 초기 DB/비공개 버킷 적용은 완료했다. Google OAuth·DB 접속 정보·서버용 Storage secret은 로컬에 입력됐으며 ES256 서명 키의 원격 등록/활성화를 확인했다. Worker 업로드는 계정 이메일 미인증 오류 10034로 거부됐다. 이 문서는 준비된 코드를 전용 프로젝트에 배포하는 절차다. 유료 플랜·유료 리소스·사용자 지정 도메인을 구매하지 않는다.
 
 현재 Cloudflare Account ID는 `7577f586f44b23fbc4ebf27e21d19a70`, 등록한 계정 주소는 `samjeong-moa.workers.dev`, 앱 배포 예정 주소는 `https://samjeong-moa.samjeong-moa.workers.dev`다. 주소 등록은 Worker 배포 완료를 뜻하지 않는다. 첫 관리자와 교사 허용 명단에는 사용자가 지정한 `xopowok08@samjeong.ms.kr`를 설정했다.
 
@@ -128,6 +128,8 @@ Supabase Realtime 설정은 private 채널만 허용하는 옵션을 활성화�
 
 ### 현재 준비된 프로젝트의 최초 배포
 
+Cloudflare 계정 이메일 인증을 먼저 완료한다. 오류 10034가 나오면 Cloudflare **My Profile → Email Address → Send verification email**에서 이메일을 받고 링크로 인증한다. 현재 계정 이메일은 `kms99082248@gmail.com`이며 학교 로그인 계정과 별개다. [공식 이메일 인증 안내](https://developers.cloudflare.com/fundamentals/user-profiles/verify-email-address/). 인증 완료 후 아래 설정 명령을 재실행한다. 이미 생성한 Hyperdrive는 재사용한다.
+
 Google·DB·Storage 입력과 서명 키 등록을 끝냈다면 일반 터미널에서 다음을 실행한다. CLI 로그인은 현재 실행 환경에서 콜백 포트를 열 수 없어 사용자의 일반 터미널에서 진행해야 한다.
 
 ```sh
@@ -142,7 +144,7 @@ npm run deploy:setup
 
 전체 검사 후 필요한 Worker secrets 네 개만 0600 권한의 Git 제외 임시 파일로 묶어 `wrangler deploy --secrets-file`에 전달한다. DB 암호와 Cloudflare 인증 토큰은 이 파일에 포함하지 않는다. 성공/오류 종료 시 임시 파일을 삭제한다. 배포 후 상태 API와 DB를 사용하는 Google 로그인 시작 리디렉션을 확인하지만 학교 계정의 로그인 완료·학생 QR·실시간 활동 검증은 별도다.
 
-`npm run deploy:setup -- --validate-only`는 외부 전송/변경 없이 로컬 설정만 확인한다. 현재 환경에서는 이 검사만 통과했으며 실제 모드는 CLI 미로그인으로 원격 리소스 생성 전에 중단됐다. [인증 토큰의 안전한 스크립트 사용](https://developers.cloudflare.com/workers/wrangler/commands/general/#auth-token), [코드와 secret 동시 배포](https://developers.cloudflare.com/workers/configuration/secrets/#upload-secrets-alongside-code), [Hyperdrive TLS](https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/).
+`npm run deploy:setup -- --validate-only`는 외부 전송/변경 없이 로컬 설정만 확인한다. 사용자 일반 터미널에서는 인증/Hyperdrive 생성이 진행됐고 Worker 배포는 이메일 인증에서 막혔다. 이 대화 환경의 직접 API 호출은 DNS 오류로 중단된다. 스크립트는 고정된 실패 단계와 제한된 네트워크 오류 코드만 추가 출력하고 원격 응답/비밀값은 출력하지 않는다. [인증 토큰의 안전한 스크립트 사용](https://developers.cloudflare.com/workers/wrangler/commands/general/#auth-token), [코드와 secret 동시 배포](https://developers.cloudflare.com/workers/configuration/secrets/#upload-secrets-alongside-code), [Hyperdrive TLS](https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/).
 
 ### 이미 연결된 리소스에 재배포
 
