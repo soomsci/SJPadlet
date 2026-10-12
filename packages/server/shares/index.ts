@@ -33,7 +33,7 @@ async function validateTarget(db:Database,target:Pick<Share,'target_type'|'targe
   if(target.target_id!==board.id)fail(400,'INVALID_INPUT','공유 대상이 게시판과 일치하지 않습니다.');
  }else{
   const table=target.target_type==='post'?'posts':'sections';
-  const exists=await db.one<{id:string}>(`SELECT id FROM ${table} WHERE id=$1 AND board_id=$2${table==='posts'?" AND status='published'":''}`,[target.target_id,board.id]);
+  const exists=await db.one<{id:string}>(`SELECT id FROM ${table} WHERE id=$1 AND board_id=$2${table==='posts'?" AND status='published'":' AND deleted_at IS NULL'}`,[target.target_id,board.id]);
   if(!exists)fail(404,'NOT_FOUND','공유할 수 없는 대상입니다.');
  }
 }

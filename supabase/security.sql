@@ -3,7 +3,7 @@
 DO $$
 DECLARE name text;
 BEGIN
-  FOREACH name IN ARRAY ARRAY['principals','sessions','oauth_states','boards','board_members','sections','share_links','participations','board_blocks','posts','comments','reactions','storage_budget','attachments','audit_events','outbox_events','idempotency','favorites','rate_limits'] LOOP
+  FOREACH name IN ARRAY ARRAY['principals','sessions','oauth_states','boards','board_members','sections','share_links','participations','board_blocks','posts','comments','reactions','storage_budget','attachments','audit_events','outbox_events','idempotency','favorites','rate_limits','post_drafts','teacher_admissions','operation_runs','backup_object_refs'] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', name);
     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon, authenticated', name);
   END LOOP;

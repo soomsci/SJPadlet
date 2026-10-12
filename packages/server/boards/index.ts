@@ -3,23 +3,25 @@ import { boardInput, postInput, type Board, type BoardView, type Post, type Post
 import { getDb, id, now, emit, audit, type Database } from '@db';
 import { input, fail, json } from '@server/common/http';
 import { requirePrincipal } from '@server/auth';
+import { consumeDraft } from '@server/drafts';
+import { handleSectionChanges } from './sections';
 import { boardAccess, canReadPost, canWritePost, requireTeacher } from '@server/policy';
 
 type Access = Awaited<ReturnType<typeof boardAccess>>;
 const versionInput = z.object({ version: z.number().int().positive() });
 const boardPatch = z.object({
   title: z.string().trim().min(1).max(200).optional(), description: z.string().max(5000).optional(),
+  column_width: z.number().int().min(260).max(440).optional(), font_scale: z.enum(['small','normal','large']).optional(), card_density: z.enum(['comfortable','compact']).optional(), background_style: z.enum(['solid','gradient','paper']).optional(),
   format: z.enum(['wall','grid','columns']).optional(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   participation_mode: z.enum(['both','login']).optional(), moderation: z.boolean().optional(), anonymous_display: z.boolean().optional(),
   version: z.number().int().positive(), state: z.enum(['draft', 'open', 'closed', 'archived']).optional(),
   allow_comments: z.boolean().optional(), allow_reactions: z.boolean().optional(),
 });
-const sectionInput = z.object({ title: z.string().trim().min(1).max(120), rank: z.number().int().min(0).max(10000).optional() });
 const postPatch = z.object({
   version: z.number().int().positive(), title: z.string().trim().min(1).max(200).optional(), body: z.string().max(10000).optional(),
   section_id: z.string().nullable().optional(), link: z.union([z.url().refine(value => /^https?:\/\//.test(value)),z.literal('')]).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), attachment_ids: z.array(z.string()).max(5).optional(),
-  rank: z.number().int().min(0).max(2147483647).optional(),
+  rank: z.number().int().min(0).max(2147483647).optional(), draft_id:z.uuid().optional(),draft_version:z.number().int().positive().optional(),
 });
 function managed(access: Access) { if (!access.can_manage) fail(403, 'FORBIDDEN', '교사 편집 권한이 필요합니다.'); }
 function writable(access: Access) { if (!access.can_write) fail(403, access.board.state !== 'open' ? 'BOARD_CLOSED' : 'FORBIDDEN', '현재 이 활동에 작성할 수 없습니다.'); }
@@ -48,7 +50,7 @@ async function limit(tx: Database, principal: Principal, boardId: string, kind: 
   if (row && row.count > max) fail(429, 'RATE_LIMITED', '잠시 기다린 후 다시 작성해주세요.');
 }
 async function section(tx: Database, boardId: string, sectionId: string | null | undefined) {
-  if (sectionId && !await tx.one('SELECT id FROM sections WHERE id=$1 AND board_id=$2', [sectionId, boardId])) fail(400, 'INVALID_INPUT', '이 게시판의 섹션을 선택해주세요.');
+  if (sectionId && !await tx.one('SELECT id FROM sections WHERE id=$1 AND board_id=$2 AND deleted_at IS NULL', [sectionId, boardId])) fail(400, 'INVALID_INPUT', '이 게시판의 섹션을 선택해주세요.');
 }
 function canCreate(access: Access, sectionId: string | null | undefined) {
   writable(access);
@@ -74,7 +76,7 @@ async function attach(tx: Database, p: Principal, boardId: string, postId: strin
 }
 
 async function view(db: Database, p: Principal, access: Access): Promise<BoardView> {
-  const sections = await db.all<Section>('SELECT * FROM sections WHERE board_id=$1 ORDER BY rank,id', [access.board.id]);
+  const sections = await db.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NULL ORDER BY rank,id', [access.board.id]);
   const records = (await db.all<Post & { display_name: string }>('SELECT posts.*,principals.display_name FROM posts JOIN principals ON principals.id=posts.author_id WHERE board_id=$1 ORDER BY rank,created_at,id', [access.board.id])).filter(post => canReadPost(access, p, post));
   const visibleIds = records.map(post => post.id);
   type CommentRow = { id: string; post_id: string; body: string; author_id: string; display_name: string; created_at: string };
@@ -90,7 +92,8 @@ async function view(db: Database, p: Principal, access: Access): Promise<BoardVi
       attachments: attachments.filter(file => file.post_id === post.id).map(({ post_id: _postId, ...file }) => file),
       comments: comments.filter(comment => comment.post_id === post.id).map(({ author_id: commentAuthor, display_name: commentName, post_id: _postId, ...comment }) => ({ ...comment, author_name: name(commentName, commentAuthor === p.id), is_mine: commentAuthor === p.id })) };
   });
-  return { board: access.board, sections, posts, can_manage: access.can_manage, can_write: access.can_write, submission_only: access.submission_only, principal: { id: p.id, role: p.role, display_name: p.display_name } };
+  const deleted_sections = access.can_manage ? await db.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',[access.board.id]) : undefined;
+  return { board: access.board, sections, ...(deleted_sections ? {deleted_sections} : {}), posts, can_manage: access.can_manage, can_write: access.can_write, submission_only: access.submission_only, principal: { id: p.id, role: p.role, display_name: p.display_name } };
 }
 export async function getBoardView(principal: Principal, boardId: string): Promise<BoardView> {
   const db = await getDb();
@@ -113,6 +116,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
   // The media, export, sharing and SSE routes are owned by integration modules.
   if (resource === 'boards' && child && !['posts', 'sections', 'favorite', 'restore', 'duplicate', 'members'].includes(child)) return null;
   const p = await requirePrincipal(req), db = await getDb();
+  if (resource === 'boards' && resourceId && (child === 'sections' || (child === 'posts' && childId === 'reorder'))) return handleSectionChanges(req, segments, p, db);
   if (resource === 'boards' && !resourceId) {
     requireTeacher(p);
     if (req.method === 'GET') {
@@ -166,8 +170,9 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
       const duplicateId = await db.transaction(async tx => {
         const access = await lockAccess(tx, p, resourceId); managed(access);
         const source = access.board, duplicate = await createBoard(tx, p, { title: `${source.title.slice(0, 193)} 사본`, description: source.description, format: source.format, color: source.color, participation_mode: source.participation_mode, moderation: source.moderation, anonymous_display: source.anonymous_display }, source);
+        await tx.run('UPDATE boards SET column_width=$2,font_scale=$3,card_density=$4,background_style=$5 WHERE id=$1',[duplicate,source.column_width??300,source.font_scale??'normal',source.card_density??'comfortable',source.background_style??'gradient']);
         const mapping = new Map<string, string>();
-        for (const item of await tx.all<Section>('SELECT * FROM sections WHERE board_id=$1', [resourceId])) { const sectionId = id(); mapping.set(item.id, sectionId); await tx.run('INSERT INTO sections(id,board_id,title,rank) VALUES($1,$2,$3,$4)', [sectionId, duplicate, item.title, item.rank]); }
+        for (const item of await tx.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NULL', [resourceId])) { const sectionId = id(); mapping.set(item.id, sectionId); await tx.run('INSERT INTO sections(id,board_id,title,rank) VALUES($1,$2,$3,$4)', [sectionId, duplicate, item.title, item.rank]); }
         if (data.include_posts) for (const post of await tx.all<Post>("SELECT * FROM posts WHERE board_id=$1 AND status='published'", [resourceId])) await tx.run("INSERT INTO posts(id,board_id,section_id,author_id,title,body,link,status,color,rank,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8,$9,$10,$10)", [id(), duplicate, post.section_id ? mapping.get(post.section_id) ?? null : null, p.id, post.title, post.body, post.link, post.color, post.rank, now()]);
         return duplicate;
       });
@@ -177,27 +182,6 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
       requireTeacher(p); const data = await input(req, z.object({ favorite: z.boolean() }));
       await db.transaction(async tx => { await lockAccess(tx, p, resourceId); if (data.favorite) await tx.run('INSERT INTO favorites(principal_id,board_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [p.id, resourceId]); else await tx.run('DELETE FROM favorites WHERE principal_id=$1 AND board_id=$2', [p.id, resourceId]); });
       return json(data);
-    }
-    if (child === 'sections' && childId && segments[4] === 'order' && req.method === 'POST') {
-      const data = await input(req, z.object({ version: z.number().int().positive(), direction: z.enum(['up', 'down']) }));
-      await db.transaction(async tx => {
-        const access = await lockAccess(tx, p, resourceId); managed(access); checkVersion(access.board.version, data.version);
-        const ordered = await tx.all<Section>('SELECT * FROM sections WHERE board_id=$1 ORDER BY rank,id', [resourceId]);
-        const index = ordered.findIndex(item => item.id === childId);
-        if (index < 0) fail(404, 'NOT_FOUND', '섹션을 찾을 수 없습니다.');
-        const nextIndex = index + (data.direction === 'up' ? -1 : 1);
-        if (nextIndex < 0 || nextIndex >= ordered.length) return;
-        [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
-        for (let i = 0; i < ordered.length; i++) await tx.run('UPDATE sections SET rank=$2 WHERE id=$1', [ordered[i].id, i * 100]);
-        await touch(tx, resourceId, 'section.order');
-      });
-      return json(await getBoardView(p, resourceId));
-    }
-    if (child === 'sections' && !segments[4] && ['POST', 'PATCH'].includes(req.method)) {
-      const data = await input(req, sectionInput), sectionId = childId ?? id();
-      if (req.method === 'PATCH' && !childId) fail(400, 'INVALID_INPUT', '섹션을 선택해주세요.');
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, resourceId); managed(access); if (req.method === 'POST') await tx.run('INSERT INTO sections(id,board_id,title,rank) VALUES($1,$2,$3,$4)', [sectionId, resourceId, data.title, data.rank ?? 100]); else { await section(tx, resourceId, sectionId); await tx.run('UPDATE sections SET title=$3,rank=COALESCE($4,rank) WHERE id=$1 AND board_id=$2', [sectionId, resourceId, data.title, data.rank ?? null]); } await touch(tx, resourceId, 'section'); });
-      return json(await getBoardView(p, resourceId));
     }
     if (child === 'members' && req.method === 'POST') {
       const data = await input(req, z.object({ email: z.email() }));
@@ -210,6 +194,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
       const postId = await db.transaction(async tx => {
         const access = await lockAccess(tx, p, resourceId); canCreate(access, data.section_id); await section(tx, resourceId, data.section_id);
         if (idem) { const prior = await tx.one<{ result_id: string }>('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem]); if (prior) { const existing = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [prior.result_id]); if (!existing || existing.board_id !== resourceId || existing.author_id !== p.id || existing.title !== data.title || existing.body !== data.body || existing.link !== (data.link || null) || existing.section_id !== (data.section_id ?? null) || existing.color !== data.color) fail(409, 'CONFLICT', '같은 재시도 키로 다른 글을 작성할 수 없습니다.'); const files = await tx.all<{id:string}>('SELECT id FROM attachments WHERE post_id=$1', [existing.id]); if (JSON.stringify(files.map(file => file.id).sort()) !== JSON.stringify([...new Set(data.attachment_ids)].sort())) fail(409, 'CONFLICT', '같은 재시도 키로 첨부 파일을 바꿀 수 없습니다.'); return existing.id; } }
+        await consumeDraft(tx,p,resourceId,{draft_id:data.draft_id,draft_version:data.draft_version,edit_post_id:null});
         await limit(tx, p, resourceId, 'post', 10);
         const postId = id(), timestamp = now(), status = access.board.moderation && !access.can_manage ? 'pending' : 'published';
         await tx.run('INSERT INTO posts(id,board_id,section_id,author_id,title,body,link,status,color,rank,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)', [postId, resourceId, data.section_id ?? null, p.id, data.title, data.body, data.link || null, status, data.color, Date.now() % 2147483647, timestamp]);
@@ -248,6 +233,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]);
         if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.');
         writePost(access, p, post); checkVersion(post.version, patch.version);
+        await consumeDraft(tx,p,original.board_id,{draft_id:patch.draft_id,draft_version:patch.draft_version,edit_post_id:post.id});
         if (patch.rank !== undefined && !access.can_manage) fail(403, 'FORBIDDEN', '정렬은 교사만 변경할 수 있습니다.');
         const data = { ...post, ...patch };
         await section(tx, original.board_id, data.section_id);

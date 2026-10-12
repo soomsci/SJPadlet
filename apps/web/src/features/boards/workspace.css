@@ -30,7 +30,7 @@ body:has(.boards-workspace[data-ready]) .site-header { display: none; }
 .board-open-strip { display: flex; align-items: center; gap: 8px; background: #ffffff70; border-radius: 10px; padding: 4px 10px; margin-bottom: 16px; font-size: 12px; color: #526750; }
 .board-open-strip .button { margin-left: auto; min-height: 30px; padding: 5px 8px; font-size: 12px; }
 .boards-workspace[data-ready] .boards-columns { gap: 24px; overflow-y: visible; padding-top: 2px; }
-.boards-workspace[data-ready] .boards-column { flex-basis: 300px; width: 300px; gap: 14px; }
+.boards-workspace[data-ready] .boards-column { flex-basis: var(--board-column, 300px); width: var(--board-column, 300px); gap: 14px; }
 .boards-workspace[data-ready] .boards-section-heading { min-height: 50px; padding: 10px 14px; border-radius: 12px; }
 .boards-workspace[data-ready] .boards-section-heading h2 { font-size: 20px; }
 .boards-workspace[data-ready] .boards-column-add { min-height: 44px; padding: 10px; border-radius: 12px; }
@@ -59,7 +59,7 @@ body:has(.boards-workspace[data-ready]) .site-header { display: none; }
   .board-heading { padding: 10px 0 18px; }
   .board-heading h1 { font-size: 28px; }
   .board-heading-meta { font-size: 11px; }
-  .boards-workspace[data-ready] .boards-column { flex-basis: min(280px,85vw); width: min(280px,85vw); }
+  .boards-workspace[data-ready] .boards-column { flex-basis: min(var(--board-column, 280px),85vw); width: min(var(--board-column, 280px),85vw); }
 }
 @media(max-width:420px) {
   .board-topbar { align-items: flex-start; }
@@ -130,3 +130,35 @@ body:has(.boards-dashboard[data-library]) .site-footer { display: none; }
   .board-library-tools .boards-search { flex: 1; min-width: 0; }
   .board-library-tools .boards-search input { width: 100%; }
 }
+
+/* Teacher-selected board appearance. Text colours stay unchanged to preserve contrast. */
+.boards-workspace[data-ready][data-background="solid"] { background: var(--board-background); }
+.boards-workspace[data-ready][data-background="paper"] { background: repeating-linear-gradient(180deg, transparent 0 31px, #0000000d 31px 32px), var(--board-background); }
+.boards-workspace[data-font="small"] .boards-post h3 { font-size: 16px; }
+.boards-workspace[data-font="small"] .boards-post-text { font-size: 13px; }
+.boards-workspace[data-font="large"] .boards-post h3 { font-size: 22px; }
+.boards-workspace[data-font="large"] .boards-post-text { font-size: 18px; }
+.boards-workspace[data-density="compact"] .boards-column { gap: 8px; }
+.boards-workspace[data-density="compact"] .boards-post { padding: 12px 14px; }
+
+.board-drafts { position: fixed; left: 24px; bottom: 26px; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px; max-width: calc(100% - 220px); }
+.board-drafts .button { max-width: 220px; box-shadow: 0 6px 18px #0000001f; }
+.board-drafts .button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boards-deleted-sections { margin-top: 18px; border-top: 1px solid #0000001a; padding-top: 14px; }
+.boards-deleted-sections h3 { font-size: 15px; margin: 0; }
+.boards-deleted-sections ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.boards-deleted-sections li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+@media(max-width:640px) { .board-drafts { left: 16px; bottom: 84px; max-width: calc(100% - 32px); } }
+@media print { .board-drafts { display: none; } }
+
+/* Teacher drag-and-drop ordering (move buttons remain the keyboard path). */
+.boards-workspace[data-ready] [draggable="true"] { cursor: grab; }
+.boards-workspace[data-dragging] .boards-column { outline: 2px dashed transparent; outline-offset: 4px; border-radius: 16px; transition: outline-color .15s; }
+.boards-workspace[data-dragging] .boards-column.drop-target { outline-color: #315b43; }
+
+.board-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.board-activity button { width: 100%; display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; font: inherit; }
+.board-activity button:hover, .board-activity button:focus-visible { background: #eef3ec; }
+.board-activity strong { font-size: 14px; }
+.board-activity span { color: #354b3b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-activity time { font-size: 12px; color: #68756a; }

@@ -69,6 +69,10 @@ npm ci
 npm run db:migrate:free
 ```
 
+후속 버전 `202610120002_classroom_followups.sql`은 초안·교사 허용 명단·섹션 삭제·게시판 외형·운영 기록 테이블과 비공개 `school-backups` 버킷(파일당 12MB)을 추가한다. 이 버전을 적용하기 전에 새 Worker를 배포하면 게시판 조회가 실패하므로 `npm run db:migrate:free` → `npm run deploy:free` 순서를 지킨다.
+
+자동 백업은 선택 사항이다. `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`로 만든 키를 `npx wrangler secret put BACKUP_ENCRYPTION_KEY`로 등록하고, 같은 키를 학교 밖 안전한 곳에 따로 보관한다. 키가 없으면 매일 Cron은 정리만 실행하고 학교 관리 화면에 백업 미설정이 표시된다. 운영 복원은 관리자 화면의 미리보기·확인 문구 절차로만 수행한다.
+
 생성된 `supabase/migrations/202610120001_free_hosting.sql`은 앱 테이블·권한 회수·비공개 버킷·Realtime 정책과 트리거를 포함한다. 스크립트는 적용 버전과 체크섬을 기록하고 한 트랜잭션으로 적용한다. 재실행은 같은 체크섬이면 건너뛴다. 이미 적용한 파일을 고치지 말고 후속 버전을 추가한다. 이 초기 파일은 `npm run db:generate:free`로 스키마와 `supabase/security.sql`에서 생성한다.
 
 ## 4. Hyperdrive 연결
