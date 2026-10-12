@@ -24,6 +24,8 @@
     "TEACHER_ADMISSION": "allowlist",
     "TEACHER_EMAILS": "xopowok08@samjeong.ms.kr",
     "ADMIN_EMAILS": "xopowok08@samjeong.ms.kr",
+    "TEACHER_GROUP_EMAIL": "allsamjeong@samjeong.ms.kr",
+    "GOOGLE_DIRECTORY_SUBJECT": "xopowok08@samjeong.ms.kr",
     "FREE_TIER_MODE": "true",
     "MEDIA_BACKEND": "supabase",
     "SUPABASE_URL": "https://oxaggbmvughcdxsuhlpd.supabase.co",

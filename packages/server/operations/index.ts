@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Attachment, OperationRun } from '@contracts';
 import { getDb, id, now, audit, type Database } from '@db';
-import { requirePrincipal } from '@server/auth';
+import { recheckTeacherGroup, requirePrincipal } from '@server/auth';
 import { assertSameOrigin, fail, input, json } from '@server/common/http';
 import { setting } from '@server/common/runtime';
 import { deleteObject, getObject } from '@server/media/storage';
@@ -98,6 +98,8 @@ export async function runMaintenance() {
   let backupError: unknown;
   if (setting('BACKUP_ENCRYPTION_KEY')) { try { await performBackup(db); } catch (error) { backupError = error; } }
   await performCleanup(db);
+  // A failed Google lookup demotes nobody; the next daily run retries.
+  await recheckTeacherGroup(db).catch(error => { backupError ??= error; });
   if (backupError) throw backupError;
 }
 async function storedSnapshot(db: Database, backupId: string) {

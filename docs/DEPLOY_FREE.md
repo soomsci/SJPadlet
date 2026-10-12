@@ -108,6 +108,16 @@ npm exec -- wrangler secret put SUPABASE_SECRET_KEY
 npm exec -- wrangler secret put SUPABASE_SIGNING_JWK
 ```
 
+### 교사 Google 그룹 (선택)
+
+학생도 같은 도메인을 쓰므로 교사는 명단 또는 그룹 멤버십으로만 결정한다. 교사 그룹을 쓰려면 Workspace 최고 관리자가 다음을 설정한다.
+
+1. OAuth 클라이언트와 같은 Google Cloud 프로젝트에서 **Admin SDK API**를 사용 설정하고 서비스 계정과 JSON 키를 만든다. 조직 정책이 키 생성을 막으면 그 프로젝트에만 예외를 둔다.
+2. 관리 콘솔 → 보안 → API 제어 → **도메인 전체 위임**에 서비스 계정의 클라이언트 ID를 추가하고 범위는 `https://www.googleapis.com/auth/admin.directory.group.member.readonly` **하나만** 허용한다.
+3. `wrangler.jsonc` vars에 `TEACHER_GROUP_EMAIL`(교사 그룹 주소)과 `GOOGLE_DIRECTORY_SUBJECT`(위임 대상 관리자 계정)를 넣고, 키는 `npx wrangler secret put GOOGLE_DIRECTORY_KEY`로 JSON 전체를 등록한다. 키 파일은 저장소·`.env.free`에 두지 않고 등록 후 삭제한다.
+
+판단 순서: 운영 관리자 → 학교 관리 화면의 허용/해제(최우선) → `TEACHER_EMAILS` → 교사 그룹 멤버 → 학생. 그룹 조회 실패 시 교사 로그인은 503으로 거부하고(학생 강등 없음) 학생 로그인은 그대로 허용한다. 매일 Cron이 그룹으로만 교사가 된 계정을 다시 확인해 그룹에서 빠진 계정을 학생으로 바꾸고 세션을 끊는다. 조회가 실패한 날은 아무도 강등하지 않는다.
+
 Google 웹 OAuth 클라이언트의 리디렉션 주소는 `<APP_URL>/api/auth/google/callback`이다. `TEACHER_ADMISSION=allowlist`와 실제 교사 명단을 유지한다. `ADMIN_EMAILS` 계정도 `@samjeong.ms.kr`와 Google Workspace `hd`가 검증되어야 한다. 학생 로그인은 교사 도메인과 별도이며, 유효한 초대를 요구한다.
 
 ### Google OAuth 생성 순서
