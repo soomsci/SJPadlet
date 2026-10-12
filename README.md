@@ -21,6 +21,8 @@ npm run db:migrate:free
 npm run deploy:free
 ```
 
+`db:migrate:free`는 `supabase/migrations`의 버전 파일을 순서대로 체크섬과 함께 한 트랜잭션으로 적용한다. 새 버전의 Worker가 새 열·테이블을 사용하므로 **마이그레이션을 먼저 적용한 뒤 배포**한다. 매일 03:00(KST) Cron이 자동 정리와, `BACKUP_ENCRYPTION_KEY` secret이 있으면 암호화 백업을 실행한다. 백업 이미지 묶음 보관은 `npm run ops:archive -- export --backup <백업 ID> --out <새 폴더>`로 확인 후 `--apply`를 붙여 실행한다.
+
 최초 배포에서 `.env.free` 입력과 Supabase 서명 키 가져오기/활성화를 완료했다면 일반 터미널에서 `npm run cf:login` 후 `npm run deploy:setup`을 실행한다. 이 명령은 설정/원격 키/비공개 버킷을 확인하고 캐시를 끈 Hyperdrive를 생성하거나 동일 대상을 재사용한다. 이어 전체 검사와 Worker/정적 파일/필수 secrets 배포, 상태 API와 DB를 사용하는 Google 로그인 시작을 확인한다. 비밀값은 Git 제외 임시 파일로 전달하고 종료 시 삭제한다. `npm run deploy:setup -- --validate-only`는 외부 변경 없이 로컬 설정만 검사한다.
 
 `npm run build`는 정적 화면, `cf:dry-run`은 Worker 패키지를 생성한다. `npm run dev`는 구성된 Worker/Assets를 로컬에서 실행하며 `.dev.vars.example`을 참고한다. local Hyperdrive 연결은 개발 전용 DB를 사용한다. `DATABASE_URL`만 설정해도 Worker가 연결되는 구조가 아니며 Hyperdrive 바인딩이 필요하다. 운영 DB를 로컬 테스트 대상으로 사용하지 않는다.

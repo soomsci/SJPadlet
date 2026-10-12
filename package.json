@@ -24,6 +24,7 @@
     "deploy:setup": "node --import tsx scripts/setup-free-deployment.ts",
     "db:migrate:free": "node --import tsx scripts/migrate-free.ts",
     "db:generate:free": "node --import tsx scripts/generate-free-migration.ts",
+    "ops:archive": "node --import tsx scripts/operations-backup.ts",
     "dev:node": "next dev apps/web --hostname 0.0.0.0",
     "build:node": "next build apps/web --webpack",
     "start:node": "next start apps/web --hostname 0.0.0.0",

@@ -1,9 +1,11 @@
+import { handleDrafts } from '@server/drafts';
 import { handleAuth } from '@server/auth';
 import { handleBoards } from '@server/boards';
 import { handleShares } from '@server/shares';
 import { handleMedia } from '@server/media';
 import { handleRealtime } from '@server/realtime';
 import { handleAdmin } from '@server/admin';
+import { handleOperations } from '@server/operations';
 import { handleExports } from '@server/exports';
 import { handleParticipants } from '@server/participants';
 import { assertSameOrigin, errorResponse, fail, json } from '@server/common/http';
@@ -17,7 +19,7 @@ export async function dispatch(req: Request, path: string[]): Promise<Response> 
       const policy = uploadPolicy();
       return json({ images_only: policy.imagesOnly, max_bytes: policy.maxBytes });
     }
-    for (const handler of [handleAuth, handleShares, handleMedia, handleRealtime, handleExports, handleAdmin, handleParticipants, handleBoards]) {
+    for (const handler of [handleAuth, handleShares, handleMedia, handleRealtime, handleExports, handleOperations, handleAdmin, handleParticipants, handleDrafts, handleBoards]) {
       const response = await handler(req, path);
       if (response) return response;
     }

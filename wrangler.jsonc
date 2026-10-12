@@ -30,6 +30,9 @@
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_VsAn9gVLEFPFy3NNDAMu_w_u56WEmM8",
     "SUPABASE_STORAGE_BUCKET": "classroom-images"
   },
+  "triggers": {
+    "crons": ["0 18 * * *"]
+  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

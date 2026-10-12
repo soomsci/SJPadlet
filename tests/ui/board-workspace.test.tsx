@@ -12,6 +12,7 @@ beforeEach(() => {
       const { title } = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ data: { ...boardFixture, sections: boardFixture.sections.map(s => s.id === 'section-1' ? { ...s, title } : s) } }));
     }
+    if (path.endsWith('/drafts')) return new Response(JSON.stringify({ data: [] }));
     return new Response(JSON.stringify({ data: path === '/api/upload-policy' ? { images_only: true, max_bytes: 1048576 } : boardFixture }));
   }));
 });
@@ -81,4 +82,35 @@ it('keeps library filters and board creation working in the compact dashboard', 
   const input = within(dialog).getByRole('textbox', { name: '게시판 이름' });
   fireEvent.change(input, { target: { value: '새 수업' } });
   expect(document.activeElement).toBe(input);
+});
+
+it('deletes a section by moving its posts to the chosen section with the board version', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  const heading = await screen.findByRole('heading', { name: '2조 1' });
+  const menu = heading.closest('section')!.querySelector('details')!;
+  menu.setAttribute('open', '');
+  fireEvent.click(within(menu).getByRole('button', { name: '섹션 삭제' }));
+  const dialog = screen.getByRole('dialog', { name: '섹션 삭제' });
+  fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'section-3' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '섹션 삭제' }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/boards/preview-board/sections/section-2', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ version: boardFixture.board.version, move_to: 'section-3' }) })));
+});
+
+it('lists saved drafts and reopens one in the composer', async () => {
+  const draft = { id: '00000000-0000-4000-8000-000000000001', board_id: 'preview-board', principal_id: 'teacher', edit_post_id: null, edit_post_version: null, section_id: 'section-1', title: '작성 중인 생각', body: '', link: '', color: '#ffffff', attachment_ids: [], version: 2, created_at: '2026-10-12T00:00:00Z', updated_at: '2026-10-12T00:00:00Z' };
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => new Response(JSON.stringify({ data: path.endsWith('/drafts') ? [draft] : path.endsWith(`/drafts/${draft.id}`) ? draft : path === '/api/upload-policy' ? { images_only: true, max_bytes: 1048576 } : boardFixture }))));
+  render(<BoardWorkspace boardId="preview-board" />);
+  fireEvent.click(await screen.findByRole('button', { name: '작성 중인 생각' }));
+  const dialog = screen.getByRole('dialog', { name: '새로운 생각 남기기' });
+  await waitFor(() => expect((within(dialog).getByRole('textbox', { name: '제목' }) as HTMLInputElement).value).toBe('작성 중인 생각'));
+});
+
+it('opens presentation mode for a single section from the section menu', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  const heading = await screen.findByRole('heading', { name: '2조 1' });
+  const menu = heading.closest('section')!.querySelector('details')!;
+  menu.setAttribute('open', '');
+  fireEvent.click(within(menu).getByRole('button', { name: '이 섹션 발표' }));
+  const presentation = screen.getByRole('dialog', { name: '게시판 발표' });
+  expect((within(presentation).getByRole('combobox', { name: '발표 범위' }) as HTMLSelectElement).value).toBe('section-2');
 });

@@ -29,7 +29,7 @@ export async function boardAccess(db:Database,principal:Principal,boardId:string
  WHERE p.principal_id=$1 AND p.board_id=$2 AND s.board_id=$2 AND p.blocked_at IS NULL
  AND p.share_version=s.version AND s.revoked_at IS NULL AND s.expires_at>$3
  AND ((s.target_type IN ('board','submission') AND s.target_id=s.board_id)
- OR (s.target_type='section' AND EXISTS(SELECT 1 FROM sections x WHERE x.id=s.target_id AND x.board_id=s.board_id))
+ OR (s.target_type='section' AND EXISTS(SELECT 1 FROM sections x WHERE x.id=s.target_id AND x.board_id=s.board_id AND x.deleted_at IS NULL))
  OR (s.target_type='post' AND EXISTS(SELECT 1 FROM posts x WHERE x.id=s.target_id AND x.board_id=s.board_id AND x.status NOT IN ('deleted','hidden'))))`,[current.id,board.id,new Date().toISOString()]);
  const reader=['teacher','admin'].includes(current.role) && await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'reader']);
  if(reader)return {board,can_manage:false,can_write:false,submission_only:false,shares:[]};
