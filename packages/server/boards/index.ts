@@ -5,6 +5,7 @@ import { input, fail, json } from '@server/common/http';
 import { requirePrincipal } from '@server/auth';
 import { consumeDraft } from '@server/drafts';
 import { handleSectionChanges } from './sections';
+import { handleMembers } from './members';
 import { boardAccess, canReadPost, canWritePost, requireTeacher } from '@server/policy';
 
 type Access = Awaited<ReturnType<typeof boardAccess>>;
@@ -124,20 +125,23 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
   const [resource, resourceId, child, childId] = segments;
   if (!['boards', 'posts'].includes(resource ?? '')) return null;
   // The media, export, sharing and SSE routes are owned by integration modules.
-  if (resource === 'boards' && child && !['posts', 'sections', 'favorite', 'restore', 'duplicate', 'members'].includes(child)) return null;
+  if (resource === 'boards' && child && !['posts', 'sections', 'favorite', 'restore', 'duplicate', 'members', 'activity'].includes(child)) return null;
   const p = await requirePrincipal(req), db = await getDb();
+  if (resource === 'boards' && resourceId && (child === 'members' || child === 'activity')) return handleMembers(req, segments, p, db);
   if (resource === 'boards' && resourceId && (child === 'sections' || (child === 'posts' && childId === 'reorder'))) return handleSectionChanges(req, segments, p, db);
   if (resource === 'boards' && !resourceId) {
     requireTeacher(p);
     if (req.method === 'GET') {
-      const url = new URL(req.url), search = (url.searchParams.get('q') ?? '').slice(0, 200), trash = url.searchParams.get('trash') === 'true';
+      const url = new URL(req.url), search = (url.searchParams.get('q') ?? '').slice(0, 200), trash = url.searchParams.get('trash') === 'true', shared = url.searchParams.get('shared') === 'true';
       const cursor = url.searchParams.get('cursor') ?? null;
-      const rows = await db.all<Board & { favorite: boolean; post_count: string }>(`SELECT b.*,EXISTS(SELECT 1 FROM favorites f WHERE f.board_id=b.id AND f.principal_id=$1) AS favorite,
-        (SELECT COUNT(*) FROM posts WHERE board_id=b.id AND status<>'deleted') AS post_count FROM boards b WHERE
+      const rows = await db.all<Board & { favorite: boolean; post_count: string; my_role: string; owner_name: string }>(`SELECT b.*,EXISTS(SELECT 1 FROM favorites f WHERE f.board_id=b.id AND f.principal_id=$1) AS favorite,
+        (SELECT COUNT(*) FROM posts WHERE board_id=b.id AND status<>'deleted') AS post_count,
+        CASE WHEN b.owner_id=$1 THEN 'owner' ELSE (SELECT role FROM board_members m WHERE m.board_id=b.id AND m.principal_id=$1) END AS my_role,
+        (SELECT display_name FROM principals o WHERE o.id=b.owner_id) AS owner_name FROM boards b WHERE
         (b.owner_id=$1 OR EXISTS(SELECT 1 FROM board_members m WHERE m.board_id=b.id AND m.principal_id=$1))
-        AND (CASE WHEN $2 THEN b.deleted_at IS NOT NULL ELSE b.deleted_at IS NULL END)
+        AND (CASE WHEN $2 THEN b.deleted_at IS NOT NULL AND b.owner_id=$1 ELSE b.deleted_at IS NULL END) AND (NOT $5 OR b.owner_id<>$1)
         AND (b.title ILIKE $3 OR b.description ILIKE $3) AND ($4::text IS NULL OR (b.updated_at || ':' || b.id) < $4)
-        ORDER BY b.updated_at DESC,b.id DESC LIMIT 51`, [p.id, trash, `%${search}%`, cursor]);
+        ORDER BY b.updated_at DESC,b.id DESC LIMIT 51`, [p.id, trash, `%${search}%`, cursor, shared]);
       const list = rows.slice(0, 50);
       return json({ boards: list.map(row => ({ ...row, post_count: Number(row.post_count) })), next_cursor: rows.length > 50 ? `${list[list.length - 1].updated_at}:${list[list.length - 1].id}` : null });
     }
@@ -159,19 +163,19 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         const lifecycle: Record<Board['state'], Board['state'][]> = { draft: ['draft', 'open'], open: ['open', 'closed'], closed: ['closed', 'open', 'archived'], archived: ['archived', 'closed', 'open'] };
         if (data.state && !lifecycle[access.board.state].includes(data.state)) fail(400, 'INVALID_INPUT', '허용되지 않은 게시판 상태 변경입니다.');
         await tx.run(`UPDATE boards SET ${entries.map(([field], i) => `${field}=$${i + 2}`).join(',')},version=version+1,updated_at=$${entries.length + 2} WHERE id=$1`, [resourceId, ...entries.map(([, value]) => value), now()]);
-        await emit(tx, resourceId, 'settings'); await audit(tx, p.id, 'board.update', resourceId);
+        await emit(tx, resourceId, 'settings'); await audit(tx, p.id, data.state && data.state !== access.board.state ? `board.${data.state}` : 'board.update', resourceId, resourceId);
       });
       return json(await getBoardView(p, resourceId));
     }
     if (!child && req.method === 'DELETE') {
       const { version } = await input(req, versionInput);
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, resourceId); owner(p, access.board); checkVersion(access.board.version, version); await tx.run('UPDATE boards SET deleted_at=$2,updated_at=$2,version=version+1 WHERE id=$1', [resourceId, now()]); await emit(tx, resourceId, 'deleted'); await audit(tx, p.id, 'board.delete', resourceId); });
+      await db.transaction(async tx => { const access = await lockAccess(tx, p, resourceId); owner(p, access.board); checkVersion(access.board.version, version); await tx.run('UPDATE boards SET deleted_at=$2,updated_at=$2,version=version+1 WHERE id=$1', [resourceId, now()]); await emit(tx, resourceId, 'deleted'); await audit(tx, p.id, 'board.delete', resourceId, resourceId); });
       return json({ deleted: true });
     }
     if (child === 'restore' && req.method === 'POST') {
       requireTeacher(p);
       const { version } = await input(req, versionInput);
-      await db.transaction(async tx => { const board = await tx.one<Board>('SELECT * FROM boards WHERE id=$1 FOR UPDATE', [resourceId]); if (!board) fail(404, 'NOT_FOUND', '게시판을 찾을 수 없습니다.'); owner(p, board); checkVersion(board.version, version); await tx.run("UPDATE boards SET deleted_at=NULL,state='closed',updated_at=$2,version=version+1 WHERE id=$1", [resourceId, now()]); await emit(tx, resourceId, 'restored'); await audit(tx, p.id, 'board.restore', resourceId); });
+      await db.transaction(async tx => { const board = await tx.one<Board>('SELECT * FROM boards WHERE id=$1 FOR UPDATE', [resourceId]); if (!board) fail(404, 'NOT_FOUND', '게시판을 찾을 수 없습니다.'); owner(p, board); checkVersion(board.version, version); await tx.run("UPDATE boards SET deleted_at=NULL,state='closed',updated_at=$2,version=version+1 WHERE id=$1", [resourceId, now()]); await emit(tx, resourceId, 'restored'); await audit(tx, p.id, 'board.restore', resourceId, resourceId); });
       return json(await getBoardView(p, resourceId));
     }
     if (child === 'duplicate' && req.method === 'POST') {
@@ -192,11 +196,6 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
       requireTeacher(p); const data = await input(req, z.object({ favorite: z.boolean() }));
       await db.transaction(async tx => { await lockAccess(tx, p, resourceId); if (data.favorite) await tx.run('INSERT INTO favorites(principal_id,board_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [p.id, resourceId]); else await tx.run('DELETE FROM favorites WHERE principal_id=$1 AND board_id=$2', [p.id, resourceId]); });
       return json(data);
-    }
-    if (child === 'members' && req.method === 'POST') {
-      const data = await input(req, z.object({ email: z.email() }));
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, resourceId); owner(p, access.board); const teacher = await tx.one<Principal>("SELECT * FROM principals WHERE LOWER(email)=LOWER($1) AND role IN ('teacher','admin') AND disabled_at IS NULL", [data.email]); if (!teacher) fail(400, 'INVALID_INPUT', '먼저 로그인한 학교 교사 계정을 입력해주세요.'); if (teacher.id === p.id) fail(400, 'INVALID_INPUT', '이미 소유 교사입니다.'); await tx.run("INSERT INTO board_members(board_id,principal_id,role) VALUES($1,$2,'editor') ON CONFLICT(board_id,principal_id) DO UPDATE SET role='editor'", [resourceId, teacher.id]); await touch(tx, resourceId, 'member'); await audit(tx, p.id, 'board.invite_editor', resourceId); });
-      return json({ invited: true });
     }
     if (child === 'posts' && req.method === 'GET') return json((await getBoardView(p, resourceId)).posts);
     if (child === 'posts' && req.method === 'POST') {
@@ -232,7 +231,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         if (nextIndex < 0 || nextIndex >= ordered.length) return;
         [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
         for (let i = 0; i < ordered.length; i++) if (ordered[i].rank !== i * 100) await tx.run('UPDATE posts SET rank=$2,version=version+1,updated_at=$3 WHERE id=$1', [ordered[i].id, i * 100, now()]);
-        await touch(tx, original.board_id, 'order');
+        await touch(tx, original.board_id, 'order'); await audit(tx, p.id, 'post.order', resourceId, original.board_id);
       });
       return json(await getBoardView(p, original.board_id));
     }
@@ -251,17 +250,18 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         await tx.run('UPDATE posts SET title=$2,body=$3,section_id=$4,link=$5,color=$6,status=$7,version=version+1,updated_at=$8,rank=$9 WHERE id=$1', [resourceId, data.title, data.body, data.section_id, data.link || null, data.color, access.board.moderation && !access.can_manage ? 'pending' : post.status, now(), data.rank]);
         if (patch.attachment_ids !== undefined) await attach(tx, p, original.board_id, resourceId, patch.attachment_ids);
         await touch(tx, original.board_id, 'post');
+        if (access.can_manage && data.section_id !== post.section_id) await audit(tx, p.id, 'post.move', resourceId, original.board_id);
       });
       return json(await getBoardView(p, original.board_id));
     }
     if (!child && req.method === 'DELETE') {
       const data = await input(req, versionInput);
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writePost(access, p, post); checkVersion(post.version, data.version); await tx.run("UPDATE posts SET status='deleted',version=version+1,updated_at=$2 WHERE id=$1", [resourceId, now()]); await touch(tx, original.board_id, 'post'); });
+      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writePost(access, p, post); checkVersion(post.version, data.version); await tx.run("UPDATE posts SET status='deleted',version=version+1,updated_at=$2 WHERE id=$1", [resourceId, now()]); await touch(tx, original.board_id, 'post'); if (access.can_manage && post.author_id !== p.id) await audit(tx, p.id, 'post.delete', resourceId, original.board_id); });
       return json(await getBoardView(p, original.board_id));
     }
     if (child === 'moderation' && req.method === 'POST') {
       const data = await input(req, z.object({ version: z.number().int().positive(), status: z.enum(['published', 'rejected', 'hidden']) }));
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); managed(access); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post || post.status === 'deleted') fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); checkVersion(post.version, data.version); await tx.run('UPDATE posts SET status=$2,version=version+1,updated_at=$3 WHERE id=$1', [resourceId, data.status, now()]); await touch(tx, original.board_id, 'moderation'); await audit(tx, p.id, `post.${data.status}`, resourceId); });
+      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); managed(access); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post || post.status === 'deleted') fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); checkVersion(post.version, data.version); await tx.run('UPDATE posts SET status=$2,version=version+1,updated_at=$3 WHERE id=$1', [resourceId, data.status, now()]); await touch(tx, original.board_id, 'moderation'); await audit(tx, p.id, `post.${data.status}`, resourceId, original.board_id); });
       return json(await getBoardView(p, original.board_id));
     }
     if (child === 'comments' && req.method === 'POST') {

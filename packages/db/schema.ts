@@ -47,4 +47,8 @@ CREATE INDEX IF NOT EXISTS sections_board_active_idx ON sections(board_id,rank,i
 CREATE TABLE IF NOT EXISTS operation_runs (id TEXT PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN ('backup','cleanup','restore')),status TEXT NOT NULL CHECK(status IN ('running','completed','failed')),storage_key TEXT,bytes INTEGER NOT NULL DEFAULT 0,message TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,completed_at TEXT);
 CREATE TABLE IF NOT EXISTS backup_object_refs (backup_id TEXT NOT NULL REFERENCES operation_runs(id) ON DELETE CASCADE,attachment_id TEXT NOT NULL,storage_key TEXT NOT NULL,bytes INTEGER NOT NULL,PRIMARY KEY(backup_id,attachment_id));
 CREATE INDEX IF NOT EXISTS backup_object_refs_key_idx ON backup_object_refs(storage_key);
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS board_id TEXT;
+CREATE INDEX IF NOT EXISTS audit_events_board_idx ON audit_events(board_id,created_at) WHERE board_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS board_member_invites (board_id TEXT NOT NULL REFERENCES boards(id),email TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('editor','reader')),invited_by TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(board_id,email));
+CREATE INDEX IF NOT EXISTS board_member_invites_email_idx ON board_member_invites(email);
 `;

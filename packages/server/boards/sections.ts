@@ -15,7 +15,7 @@ async function lock(db: Database, actor: Principal, boardId: string, expected?: 
 }
 async function changed(db: Database, actor: Principal, boardId: string, action: string, target: string) {
   await db.run('UPDATE boards SET version=version+1,updated_at=$2 WHERE id=$1', [boardId, now()]);
-  await emit(db, boardId, action); await audit(db, actor.id, action, target);
+  await emit(db, boardId, action); await audit(db, actor.id, action, target, boardId);
 }
 async function active(db: Database, boardId: string) { return db.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NULL ORDER BY rank,id', [boardId]); }
 function sameSet(actual: string[], requested: string[]) {
