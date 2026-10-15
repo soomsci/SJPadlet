@@ -41,7 +41,9 @@ export function watchBoard(boardId: string, refresh: () => Promise<void>, status
           .subscribe(value => { if (!stopped) { status(value === 'SUBSCRIBED'); if (value === 'SUBSCRIBED') invalidate(); } });
       } else await client.realtime.setAuth(ticket.token);
       if (!stopped) {
-        invalidate(); // Rechecks access and catches notifications missed offline.
+        // No refetch here: the ticket request itself rechecks board access (a revoked viewer lands in catch and refreshes),
+        // and missed notifications are caught by SUBSCRIBED, visibility and online events. Refetching every renewal
+        // cost a full board read per student every 45 seconds even when nothing changed.
         timer = setTimeout(() => { void renew(); }, (ticket.expires_in - 15) * 1000);
       }
     } catch (error) {

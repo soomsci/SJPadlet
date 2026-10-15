@@ -96,10 +96,9 @@ export async function handleShares(req:Request,segments:string[]):Promise<Respon
   let cookie:string|undefined;
   // Shared classroom devices: a previous student's anonymous identity is reused only on explicit request.
   if(data.mode==='anonymous'&&!(principal?.role==='anonymous'&&data.continue===true)){
-   if(principal?.role==='anonymous'){
-    if(await db.one('SELECT 1 FROM board_blocks WHERE board_id=$1 AND principal_id=$2',[initial.board.id,principal.id]))fail(403,'FORBIDDEN','참여가 제한되었습니다. 선생님께 문의해주세요.');
-    await endSession(db,req);
-   }
+   if(principal?.role==='anonymous'&&await db.one('SELECT 1 FROM board_blocks WHERE board_id=$1 AND principal_id=$2',[initial.board.id,principal.id]))fail(403,'FORBIDDEN','참여가 제한되었습니다. 선생님께 문의해주세요.');
+   // The new anonymous cookie replaces whatever session this device had (the join page warns signed-in users); end it server side too.
+   if(principal)await endSession(db,req);
    const session=await createAnonymousSession(data.display_name||'익명 학생');principal=session.principal;cookie=session.cookie;}
   if(!principal)fail(401,'AUTH_REQUIRED','참여 방식을 선택해주세요.');
   const participant=principal;

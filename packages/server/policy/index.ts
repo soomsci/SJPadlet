@@ -9,9 +9,13 @@ export function requireTeacher(principal:Principal):void {
 export async function canManage(db:Database,principal:Principal,board:Board):Promise<boolean>{
  if(principal.disabled_at)return false;
  const current=await db.one<Principal>('SELECT * FROM principals WHERE id=$1',[principal.id]);
- if(!current||current.disabled_at||!['teacher','admin'].includes(current.role))return false;
- if(board.owner_id===principal.id)return true;
- return Boolean(await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,principal.id,'editor']));
+ return current?isManager(db,current,board):false;
+}
+/** Same as canManage for an already-refreshed principal row. */
+async function isManager(db:Database,current:Principal,board:Board):Promise<boolean>{
+ if(current.disabled_at||!['teacher','admin'].includes(current.role))return false;
+ if(board.owner_id===current.id)return true;
+ return Boolean(await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'editor']));
 }
 export async function boardAccess(db:Database,principal:Principal,boardId:string):Promise<BoardAccess>{
  if(principal.disabled_at)fail(403,'FORBIDDEN','사용 중지된 계정입니다.');
@@ -20,7 +24,7 @@ export async function boardAccess(db:Database,principal:Principal,boardId:string
  if(!current || current.disabled_at)fail(403,'FORBIDDEN','사용할 수 없는 계정입니다.');
  const board=await db.one<Board>('SELECT * FROM boards WHERE id=$1',[boardId]);
  if(!board || board.deleted_at)fail(404,'NOT_FOUND','게시판을 찾을 수 없습니다.');
- const can_manage=await canManage(db,current,board);
+ const can_manage=await isManager(db,current,board);
  if(can_manage)return {board,can_manage:true,can_write:true,submission_only:false,shares:[]};
  // Read-only co-teachers see the board in every state, like its editors (but never write).
  const reader=['teacher','admin'].includes(current.role) && await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'reader']);

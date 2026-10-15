@@ -15,7 +15,7 @@
 - Supabase Storage: `classroom-images` 비공개 버킷. 브라우저는 저장소 비밀키나 서명 다운로드 URL을 받지 않는다. Worker의 권한 검사 후 이미지 본문을 스트리밍한다.
 - Supabase Realtime: outbox INSERT 트리거가 빈 `invalidate` 알림만 private 채널에 보낸다. Worker는 현재 게시판 접근이 있는 사람에게 해당 채널용 ES256 JWT를 60초간 발급한다. JWT에 글·이메일·초대 토큰을 넣지 않는다. 브라우저는 45초마다 권한을 재확인하고 토큰을 갱신한다.
 
-일반적인 변경·회수 알림을 받으면 즉시 권한 API를 다시 읽는다. Supabase 채널 권한은 연결 동안 캐시되므로 회수된 연결이 토큰 만료까지 최대 60초간 빈 알림을 더 받을 수 있다. 게시글·파일·새 토큰 API는 회수 직후부터 거부한다. 알림을 놓친 화면은 45초 주기 및 재연결 때 다시 확인한다. 기존 Node 개발 서버의 1초 SSE 재검사와 구분한다.
+일반적인 변경·회수 알림을 받으면 즉시 권한 API를 다시 읽는다. Supabase 채널 권한은 연결 동안 캐시되므로 회수된 연결이 토큰 만료까지 최대 60초간 빈 알림을 더 받을 수 있다. 게시글·파일·새 토큰 API는 회수 직후부터 거부한다. 토큰 갱신(45초)은 권한만 재확인하고 게시판을 다시 읽지 않는다. 알림을 놓친 화면은 채널 재연결·화면 복귀·네트워크 복구 때 다시 읽는다. 기존 Node 개발 서버의 1초 SSE 재검사와 구분한다.
 
 ## 무료 한도와 앱 한도
 
@@ -33,7 +33,7 @@
 
 무료 이미지 경로는 확장자와 파일 시그니처 검증을 하며 **백신 검사 완료를 의미하지 않는다.** 일반 문서 업로드용 ClamAV는 무료 구성에 배포하지 않는다. 이미지 응답에는 고정 MIME, nosniff, sandbox 및 no-store를 적용한다.
 
-저장 용량 한도는 API가 트랜잭션 잠금으로 검사한다. 전송량·DB 크기·실시간 메시지·Workers CPU를 모두 앱에서 강제 제한하는 구현은 아니다. Free 플랜에서 한도를 초과하면 서비스가 제한될 수 있으며 자동 유료 전환을 전제로 하지 않는다. 두 사업자의 계정을 Free 상태로 유지한다. 파일 삭제·고아 파일 자동 정리 및 자동 백업 예약은 후속 작업이다. 취소한 첨부도 정리 전까지 용량에 포함한다.
+저장 용량 한도는 API가 트랜잭션 잠금으로 검사한다. 전송량·DB 크기·실시간 메시지·Workers CPU를 모두 앱에서 강제 제한하는 구현은 아니다. Free 플랜에서 한도를 초과하면 서비스가 제한될 수 있으며 자동 유료 전환을 전제로 하지 않는다. 두 사업자의 계정을 Free 상태로 유지한다. 매일 03:00(KST) Cron의 `runMaintenance`가 글에 연결되지 않은 첨부(14일)와 삭제된 글·휴지통 게시판의 첨부(30일)를 정리하고, `BACKUP_ENCRYPTION_KEY`가 있으면 백업한다. 업로드 중인 사진도 용량을 먼저 예약하므로 정리 전까지 취소한 첨부가 용량에 포함된다.
 
 [Cloudflare 정적 파일](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/), [Workers 요금](https://developers.cloudflare.com/workers/platform/pricing/), [Hyperdrive 무료 한도](https://developers.cloudflare.com/hyperdrive/platform/pricing/), [Supabase 무료 플랜](https://supabase.com/pricing).
 

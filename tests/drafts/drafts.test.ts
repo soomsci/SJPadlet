@@ -105,4 +105,13 @@ describe('private server drafts', () => {
   await expect(db.transaction(tx=>consumeDraft(tx,student,board.board.id,{draft_id:draftId,draft_version:1}))).rejects.toMatchObject({status:404});
   expect(await db.one('SELECT id FROM post_drafts WHERE id=$1',[draftId])).not.toBeNull();
  });
+ it('a retried post with a draft saved after the lost first attempt replays the post and removes that draft', async () => {
+  const publish = async (body: Record<string, unknown>) => (await (await handleBoards(new Request(`http://localhost:3000/api/boards/${board.board.id}/posts`, { method: 'POST', headers: { cookie: studentCookie, 'Content-Type': 'application/json', 'Idempotency-Key': 'retry-key-synthetic' }, body: JSON.stringify(body) }), ['boards', board.board.id, 'posts']))!.json()).data as { post_id: string };
+  const content = { title: '재시도 합성 글', body: '합성 본문', section_id: board.sections[0].id };
+  const first = await publish(content);
+  const draftId = crypto.randomUUID(); const draft = await call(path(draftId), payload(content));
+  const retried = await publish({ ...content, draft_id: draftId, draft_version: draft.version });
+  expect(retried.post_id).toBe(first.post_id);
+  expect(await call<PostDraft[]>(path())).toEqual([]);
+ });
 });

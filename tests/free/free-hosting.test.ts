@@ -89,6 +89,18 @@ describe('free hosting permission and storage boundaries', () => {
     await getObject('safe-key');
     expect(fetcher.mock.calls[0][0]).toBe('https://school.supabase.co/storage/v1/object/authenticated/classroom-images/safe-key');
   });
+  it('reserves quota under the lock, then stores outside it without exposing the in-flight file', async () => {
+    free(); const board = await openBoard(), db = await getDb(); let during: { status: string } | null = null, lockFree = false;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      during = await db.one<{ status: string }>("SELECT status FROM attachments WHERE board_id=$1", [board.board.id]);
+      // The school budget row is not held while the Storage request runs.
+      lockFree = await db.transaction(async tx => Boolean(await tx.one('SELECT id FROM storage_budget WHERE id=1 FOR UPDATE NOWAIT')));
+      return new Response('{}');
+    }));
+    const response = await upload(board.board.id); expect(response.status).toBe(201);
+    expect(during).toEqual({ status: 'quarantined' }); expect(lockFree).toBe(true);
+    expect((await db.one<{ status: string }>('SELECT status FROM attachments WHERE id=$1', [(await response.json()).data.id]))?.status).toBe('ready');
+  });
   it('rolls back metadata when the object store fails', async () => {
     free(); const board = await openBoard(); vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503 })));
     expect((await upload(board.board.id)).status).toBe(503);

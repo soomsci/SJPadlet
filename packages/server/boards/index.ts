@@ -106,9 +106,14 @@ async function view(db: Database, p: Principal, access: Access): Promise<BoardVi
   const deleted_sections = access.can_manage ? await db.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',[access.board.id]) : undefined;
   return { board: access.board, sections, ...(deleted_sections ? {deleted_sections} : {}), posts, can_manage: access.can_manage, can_write: access.can_write, submission_only: access.submission_only, principal: { id: p.id, role: p.role, display_name: p.display_name } };
 }
+/** Plain read: no board lock, so concurrent classroom refetches do not queue behind each other or behind writes. */
 export async function getBoardView(principal: Principal, boardId: string): Promise<BoardView> {
   const db = await getDb();
-  return db.transaction(async tx => view(tx, principal, await lockAccess(tx, principal, boardId)));
+  return view(db, principal, await boardAccess(db, principal, boardId));
+}
+/** Response view built inside a write transaction, reusing its locked access (board row re-read for the new version). */
+async function viewAfterWrite(tx: Database, p: Principal, access: Access): Promise<BoardView> {
+  return view(tx, p, { ...access, board: (await tx.one<Board>('SELECT * FROM boards WHERE id=$1', [access.board.id]))! });
 }
 
 async function createBoard(tx: Database, p: Principal, data: z.infer<typeof boardInput>, source?: Board) {
@@ -200,18 +205,21 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
     if (child === 'posts' && req.method === 'GET') return json((await getBoardView(p, resourceId)).posts);
     if (child === 'posts' && req.method === 'POST') {
       const data = await input(req, postInput), idem = key(req, `post:${resourceId}`);
-      const postId = await db.transaction(async tx => {
+      const result = await db.transaction(async tx => {
         const access = await lockAccess(tx, p, resourceId); canCreate(access, data.section_id); await section(tx, resourceId, data.section_id);
-        if (idem) { const prior = await tx.one<{ result_id: string }>('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem]); if (prior) { const existing = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [prior.result_id]); if (!existing || existing.board_id !== resourceId || existing.author_id !== p.id || existing.title !== data.title || existing.body !== data.body || existing.link !== (data.link || null) || existing.section_id !== (data.section_id ?? null) || existing.color !== data.color) fail(409, 'CONFLICT', '같은 재시도 키로 다른 글을 작성할 수 없습니다.'); const files = await tx.all<{id:string}>('SELECT id FROM attachments WHERE post_id=$1', [existing.id]); if (JSON.stringify(files.map(file => file.id).sort()) !== JSON.stringify([...new Set(data.attachment_ids)].sort())) fail(409, 'CONFLICT', '같은 재시도 키로 첨부 파일을 바꿀 수 없습니다.'); return existing.id; } }
-        await consumeDraft(tx,p,resourceId,{draft_id:data.draft_id,draft_version:data.draft_version,edit_post_id:null});
+        if (idem) { const prior = await tx.one<{ result_id: string }>('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem]); if (prior) { const existing = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [prior.result_id]); if (!existing || existing.board_id !== resourceId || existing.author_id !== p.id || existing.title !== data.title || existing.body !== data.body || existing.link !== (data.link || null) || existing.section_id !== (data.section_id ?? null) || existing.color !== data.color) fail(409, 'CONFLICT', '같은 재시도 키로 다른 글을 작성할 수 없습니다.'); const files = await tx.all<{id:string}>('SELECT id FROM attachments WHERE post_id=$1', [existing.id]); if (JSON.stringify(files.map(file => file.id).sort()) !== JSON.stringify([...new Set(data.attachment_ids)].sort())) fail(409, 'CONFLICT', '같은 재시도 키로 첨부 파일을 바꿀 수 없습니다.');
+          // A replayed post may carry a draft saved after the first attempt failed in transit; it is already published.
+          if (data.draft_id) await tx.run('DELETE FROM post_drafts WHERE id=$1 AND board_id=$2 AND principal_id=$3', [data.draft_id, resourceId, p.id]);
+          return { post_id: existing.id, view: await viewAfterWrite(tx, p, access) }; } }
+        await consumeDraft(tx,p,resourceId,{draft_id:data.draft_id,draft_version:data.draft_version,edit_post_id:null},access);
         await limit(tx, p, resourceId, 'post', 10);
         const postId = id(), timestamp = now(), status = access.board.moderation && !access.can_manage ? 'pending' : 'published';
         await tx.run('INSERT INTO posts(id,board_id,section_id,author_id,title,body,link,status,color,rank,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)', [postId, resourceId, data.section_id ?? null, p.id, data.title, data.body, data.link || null, status, data.color, await nextRank(tx, resourceId, data.section_id ?? null), timestamp]);
         await attach(tx, p, resourceId, postId, data.attachment_ids);
         if (idem) await tx.run('INSERT INTO idempotency(principal_id,key,result_id,created_at) VALUES($1,$2,$3,$4)', [p.id, idem, postId, timestamp]);
-        await touch(tx, resourceId, 'post'); return postId;
+        await touch(tx, resourceId, 'post'); return { post_id: postId, view: await viewAfterWrite(tx, p, access) };
       });
-      return json({ post_id: postId, view: await getBoardView(p, resourceId) }, 201);
+      return json(result, 201);
     }
     return null;
   }
@@ -237,12 +245,12 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
     }
     if (!child && req.method === 'PATCH') {
       const patch = await input(req, postPatch);
-      await db.transaction(async tx => {
+      return json(await db.transaction(async tx => {
         const access = await lockAccess(tx, p, original.board_id);
         const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]);
         if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.');
         writePost(access, p, post); checkVersion(post.version, patch.version);
-        await consumeDraft(tx,p,original.board_id,{draft_id:patch.draft_id,draft_version:patch.draft_version,edit_post_id:post.id});
+        await consumeDraft(tx,p,original.board_id,{draft_id:patch.draft_id,draft_version:patch.draft_version,edit_post_id:post.id},access);
         if (patch.rank !== undefined && !access.can_manage) fail(403, 'FORBIDDEN', '정렬은 교사만 변경할 수 있습니다.');
         const data = { ...post, ...patch };
         await section(tx, original.board_id, data.section_id);
@@ -251,28 +259,24 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         if (patch.attachment_ids !== undefined) await attach(tx, p, original.board_id, resourceId, patch.attachment_ids);
         await touch(tx, original.board_id, 'post');
         if (access.can_manage && data.section_id !== post.section_id) await audit(tx, p.id, 'post.move', resourceId, original.board_id);
-      });
-      return json(await getBoardView(p, original.board_id));
+        return viewAfterWrite(tx, p, access);
+      }));
     }
     if (!child && req.method === 'DELETE') {
       const data = await input(req, versionInput);
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writePost(access, p, post); checkVersion(post.version, data.version); await tx.run("UPDATE posts SET status='deleted',version=version+1,updated_at=$2 WHERE id=$1", [resourceId, now()]); await touch(tx, original.board_id, 'post'); if (access.can_manage && post.author_id !== p.id) await audit(tx, p.id, 'post.delete', resourceId, original.board_id); });
-      return json(await getBoardView(p, original.board_id));
+      return json(await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writePost(access, p, post); checkVersion(post.version, data.version); await tx.run("UPDATE posts SET status='deleted',version=version+1,updated_at=$2 WHERE id=$1", [resourceId, now()]); await touch(tx, original.board_id, 'post'); if (access.can_manage && post.author_id !== p.id) await audit(tx, p.id, 'post.delete', resourceId, original.board_id); return viewAfterWrite(tx, p, access); }));
     }
     if (child === 'moderation' && req.method === 'POST') {
       const data = await input(req, z.object({ version: z.number().int().positive(), status: z.enum(['published', 'rejected', 'hidden']) }));
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); managed(access); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post || post.status === 'deleted') fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); checkVersion(post.version, data.version); await tx.run('UPDATE posts SET status=$2,version=version+1,updated_at=$3 WHERE id=$1', [resourceId, data.status, now()]); await touch(tx, original.board_id, 'moderation'); await audit(tx, p.id, `post.${data.status}`, resourceId, original.board_id); });
-      return json(await getBoardView(p, original.board_id));
+      return json(await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); managed(access); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1 FOR UPDATE', [resourceId]); if (!post || post.status === 'deleted') fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); checkVersion(post.version, data.version); await tx.run('UPDATE posts SET status=$2,version=version+1,updated_at=$3 WHERE id=$1', [resourceId, data.status, now()]); await touch(tx, original.board_id, 'moderation'); await audit(tx, p.id, `post.${data.status}`, resourceId, original.board_id); return viewAfterWrite(tx, p, access); }));
     }
     if (child === 'comments' && req.method === 'POST') {
       const data = await input(req, z.object({ body: z.string().trim().min(1).max(2000) })), idem = key(req, `comment:${resourceId}`);
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]); if (!post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writable(access); if (!canWritePost(access, p, post)) fail(403, 'FORBIDDEN', '이 글에는 댓글 작성 권한이 없습니다.'); if (!access.board.allow_comments) fail(403, 'FORBIDDEN', '댓글이 꺼져 있습니다.'); if (idem && await tx.one('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem])) return; await limit(tx, p, original.board_id, 'comment', 30); const commentId = id(); await tx.run('INSERT INTO comments(id,post_id,author_id,body,created_at) VALUES($1,$2,$3,$4,$5)', [commentId, resourceId, p.id, data.body, now()]); if (idem) await tx.run('INSERT INTO idempotency(principal_id,key,result_id,created_at) VALUES($1,$2,$3,$4)', [p.id, idem, commentId, now()]); await touch(tx, original.board_id, 'comment'); });
-      return json(await getBoardView(p, original.board_id));
+      return json(await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]); if (!post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writable(access); if (!canWritePost(access, p, post)) fail(403, 'FORBIDDEN', '이 글에는 댓글 작성 권한이 없습니다.'); if (!access.board.allow_comments) fail(403, 'FORBIDDEN', '댓글이 꺼져 있습니다.'); if (idem && await tx.one('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem])) return viewAfterWrite(tx, p, access); await limit(tx, p, original.board_id, 'comment', 30); const commentId = id(); await tx.run('INSERT INTO comments(id,post_id,author_id,body,created_at) VALUES($1,$2,$3,$4,$5)', [commentId, resourceId, p.id, data.body, now()]); if (idem) await tx.run('INSERT INTO idempotency(principal_id,key,result_id,created_at) VALUES($1,$2,$3,$4)', [p.id, idem, commentId, now()]); await touch(tx, original.board_id, 'comment'); return viewAfterWrite(tx, p, access); }));
     }
     if (child === 'reaction' && req.method === 'PUT') {
       const data = await input(req, z.object({ liked: z.boolean() }));
-      await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]); if (!post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writable(access); if (!canWritePost(access, p, post)) fail(403, 'FORBIDDEN', '이 글에는 반응 권한이 없습니다.'); if (!access.board.allow_reactions) fail(403, 'FORBIDDEN', '좋아요가 꺼져 있습니다.'); if (data.liked) await tx.run('INSERT INTO reactions(post_id,principal_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [resourceId, p.id]); else await tx.run('DELETE FROM reactions WHERE post_id=$1 AND principal_id=$2', [resourceId, p.id]); await touch(tx, original.board_id, 'reaction'); });
-      return json(await getBoardView(p, original.board_id));
+      return json(await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]); if (!post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writable(access); if (!canWritePost(access, p, post)) fail(403, 'FORBIDDEN', '이 글에는 반응 권한이 없습니다.'); if (!access.board.allow_reactions) fail(403, 'FORBIDDEN', '좋아요가 꺼져 있습니다.'); if (data.liked) await tx.run('INSERT INTO reactions(post_id,principal_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [resourceId, p.id]); else await tx.run('DELETE FROM reactions WHERE post_id=$1 AND principal_id=$2', [resourceId, p.id]); await touch(tx, original.board_id, 'reaction'); return viewAfterWrite(tx, p, access); }));
     }
   }
   return null;
