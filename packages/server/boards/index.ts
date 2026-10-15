@@ -17,9 +17,10 @@ const boardPatch = z.object({
   participation_mode: z.enum(['both','login']).optional(), moderation: z.boolean().optional(), anonymous_display: z.boolean().optional(),
   version: z.number().int().positive(), state: z.enum(['draft', 'open', 'closed', 'archived']).optional(),
   allow_comments: z.boolean().optional(), allow_reactions: z.boolean().optional(),
+  publish_pending: z.boolean().optional(),
 });
 const postPatch = z.object({
-  version: z.number().int().positive(), title: z.string().trim().min(1).max(200).optional(), body: z.string().max(10000).optional(),
+  version: z.number().int().positive(), title: z.string().trim().max(200).optional(), body: z.string().max(10000).optional(),
   section_id: z.string().nullable().optional(), link: z.union([z.url().refine(value => /^https?:\/\//.test(value)),z.literal('')]).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), attachment_ids: z.array(z.string()).max(5).optional(),
   rank: z.number().int().min(0).max(2147483647).optional(), draft_id:z.uuid().optional(),draft_version:z.number().int().positive().optional(),
@@ -63,6 +64,10 @@ async function nextRank(tx: Database, boardId: string, sectionId: string | null)
   await tx.run('UPDATE posts SET rank=((ordered.position-1)*100)::int FROM unnest($1::text[]) WITH ORDINALITY AS ordered(id,position) WHERE posts.id=ordered.id', [ordered.map(post => post.id)]);
   return ordered.length * 100;
 }
+/** A post needs at least one of a title, body, link or image; the title alone is optional. */
+function hasContent(post: { title: string; body: string; link?: string | null }, attachments: number) {
+  if (!post.title.trim() && !post.body.trim() && !post.link && !attachments) fail(400, 'INVALID_INPUT', '제목, 내용, 링크, 사진 중 하나는 입력해주세요.');
+}
 function canCreate(access: Access, sectionId: string | null | undefined) {
   writable(access);
   if (!access.can_manage && !access.shares.some(s => s.scope === 'write' && (s.target_type === 'board' || s.target_type === 'submission' || (s.target_type === 'section' && s.target_id === sectionId)))) {
@@ -88,7 +93,7 @@ async function attach(tx: Database, p: Principal, boardId: string, postId: strin
 
 async function view(db: Database, p: Principal, access: Access): Promise<BoardView> {
   const sections = await db.all<Section>('SELECT * FROM sections WHERE board_id=$1 AND deleted_at IS NULL ORDER BY rank,id', [access.board.id]);
-  const records = (await db.all<Post & { display_name: string }>('SELECT posts.*,principals.display_name FROM posts JOIN principals ON principals.id=posts.author_id WHERE board_id=$1 ORDER BY rank,created_at,id', [access.board.id])).filter(post => canReadPost(access, p, post));
+  const records = (await db.all<Post & { display_name: string }>('SELECT posts.*,principals.display_name FROM posts JOIN principals ON principals.id=posts.author_id WHERE posts.board_id=$1 AND posts.status<>\'deleted\' ORDER BY rank,created_at,id', [access.board.id])).filter(post => canReadPost(access, p, post));
   const visibleIds = records.map(post => post.id);
   type CommentRow = { id: string; post_id: string; body: string; author_id: string; display_name: string; created_at: string };
   type AttachmentRow = Pick<Attachment, 'id' | 'name' | 'mime' | 'bytes' | 'status'> & { post_id: string };
@@ -160,7 +165,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
   if (resource === 'boards' && resourceId) {
     if (!child && req.method === 'GET') return json(await getBoardView(p, resourceId));
     if (!child && req.method === 'PATCH') {
-      const { version, ...data } = await input(req, boardPatch);
+      const { version, publish_pending, ...data } = await input(req, boardPatch);
       await db.transaction(async tx => {
         const access = await lockAccess(tx, p, resourceId); managed(access); checkVersion(access.board.version, version);
         const entries = Object.entries(data).filter(([, value]) => value !== undefined);
@@ -168,6 +173,8 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         const lifecycle: Record<Board['state'], Board['state'][]> = { draft: ['draft', 'open'], open: ['open', 'closed'], closed: ['closed', 'open', 'archived'], archived: ['archived', 'closed', 'open'] };
         if (data.state && !lifecycle[access.board.state].includes(data.state)) fail(400, 'INVALID_INPUT', '허용되지 않은 게시판 상태 변경입니다.');
         await tx.run(`UPDATE boards SET ${entries.map(([field], i) => `${field}=$${i + 2}`).join(',')},version=version+1,updated_at=$${entries.length + 2} WHERE id=$1`, [resourceId, ...entries.map(([, value]) => value), now()]);
+        // Turning approval off can also publish what was waiting, when the teacher chooses to.
+        if (publish_pending && data.moderation === false) { await tx.run("UPDATE posts SET status='published',version=version+1,updated_at=$2 WHERE board_id=$1 AND status='pending'", [resourceId, now()]); await audit(tx, p.id, 'post.publish_pending', resourceId, resourceId); }
         await emit(tx, resourceId, 'settings'); await audit(tx, p.id, data.state && data.state !== access.board.state ? `board.${data.state}` : 'board.update', resourceId, resourceId);
       });
       return json(await getBoardView(p, resourceId));
@@ -205,6 +212,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
     if (child === 'posts' && req.method === 'GET') return json((await getBoardView(p, resourceId)).posts);
     if (child === 'posts' && req.method === 'POST') {
       const data = await input(req, postInput), idem = key(req, `post:${resourceId}`);
+      hasContent(data, data.attachment_ids.length);
       const result = await db.transaction(async tx => {
         const access = await lockAccess(tx, p, resourceId); canCreate(access, data.section_id); await section(tx, resourceId, data.section_id);
         if (idem) { const prior = await tx.one<{ result_id: string }>('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem]); if (prior) { const existing = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [prior.result_id]); if (!existing || existing.board_id !== resourceId || existing.author_id !== p.id || existing.title !== data.title || existing.body !== data.body || existing.link !== (data.link || null) || existing.section_id !== (data.section_id ?? null) || existing.color !== data.color) fail(409, 'CONFLICT', '같은 재시도 키로 다른 글을 작성할 수 없습니다.'); const files = await tx.all<{id:string}>('SELECT id FROM attachments WHERE post_id=$1', [existing.id]); if (JSON.stringify(files.map(file => file.id).sort()) !== JSON.stringify([...new Set(data.attachment_ids)].sort())) fail(409, 'CONFLICT', '같은 재시도 키로 첨부 파일을 바꿀 수 없습니다.');
@@ -253,6 +261,7 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
         await consumeDraft(tx,p,original.board_id,{draft_id:patch.draft_id,draft_version:patch.draft_version,edit_post_id:post.id},access);
         if (patch.rank !== undefined && !access.can_manage) fail(403, 'FORBIDDEN', '정렬은 교사만 변경할 수 있습니다.');
         const data = { ...post, ...patch };
+        if (!data.title.trim() && !data.body.trim() && !data.link) hasContent(data, patch.attachment_ids?.length ?? Number((await tx.one<{ n: string }>('SELECT count(*) AS n FROM attachments WHERE post_id=$1', [post.id]))?.n ?? 0));
         await section(tx, original.board_id, data.section_id);
         if (!access.can_manage && data.section_id !== post.section_id && !access.shares.some(s => s.scope === 'write' && (s.target_type === 'board' || s.target_type === 'submission' || (s.target_type === 'section' && s.target_id === data.section_id)))) fail(403, 'FORBIDDEN', '이 섹션으로 이동할 수 없습니다.');
         await tx.run('UPDATE posts SET title=$2,body=$3,section_id=$4,link=$5,color=$6,status=$7,version=version+1,updated_at=$8,rank=$9 WHERE id=$1', [resourceId, data.title, data.body, data.section_id, data.link || null, data.color, access.board.moderation && !access.can_manage ? 'pending' : post.status, now(), data.rank]);
@@ -273,6 +282,20 @@ export async function handleBoards(req: Request, segments: string[]): Promise<Re
     if (child === 'comments' && req.method === 'POST') {
       const data = await input(req, z.object({ body: z.string().trim().min(1).max(2000) })), idem = key(req, `comment:${resourceId}`);
       return json(await db.transaction(async tx => { const access = await lockAccess(tx, p, original.board_id); const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]); if (!post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '글을 찾을 수 없습니다.'); writable(access); if (!canWritePost(access, p, post)) fail(403, 'FORBIDDEN', '이 글에는 댓글 작성 권한이 없습니다.'); if (!access.board.allow_comments) fail(403, 'FORBIDDEN', '댓글이 꺼져 있습니다.'); if (idem && await tx.one('SELECT result_id FROM idempotency WHERE principal_id=$1 AND key=$2', [p.id, idem])) return viewAfterWrite(tx, p, access); await limit(tx, p, original.board_id, 'comment', 30); const commentId = id(); await tx.run('INSERT INTO comments(id,post_id,author_id,body,created_at) VALUES($1,$2,$3,$4,$5)', [commentId, resourceId, p.id, data.body, now()]); if (idem) await tx.run('INSERT INTO idempotency(principal_id,key,result_id,created_at) VALUES($1,$2,$3,$4)', [p.id, idem, commentId, now()]); await touch(tx, original.board_id, 'comment'); return viewAfterWrite(tx, p, access); }));
+    }
+    if (child === 'comments' && childId && req.method === 'DELETE') {
+      // Authors remove their own comment while the activity is open; managers remove any comment (recorded in the teacher log).
+      return json(await db.transaction(async tx => {
+        const access = await lockAccess(tx, p, original.board_id);
+        const target = await tx.one<{ id: string; author_id: string }>('SELECT id,author_id FROM comments WHERE id=$1 AND post_id=$2 FOR UPDATE', [childId, resourceId]);
+        const post = await tx.one<Post>('SELECT * FROM posts WHERE id=$1', [resourceId]);
+        if (!target || !post || !canReadPost(access, p, post)) fail(404, 'NOT_FOUND', '댓글을 찾을 수 없습니다.');
+        if (!access.can_manage) { if (target.author_id !== p.id) fail(403, 'FORBIDDEN', '내가 쓴 댓글만 삭제할 수 있습니다.'); writable(access); }
+        await tx.run('DELETE FROM comments WHERE id=$1', [childId]);
+        await touch(tx, original.board_id, 'comment');
+        if (target.author_id !== p.id) await audit(tx, p.id, 'comment.delete', childId, original.board_id);
+        return viewAfterWrite(tx, p, access);
+      }));
     }
     if (child === 'reaction' && req.method === 'PUT') {
       const data = await input(req, z.object({ liked: z.boolean() }));

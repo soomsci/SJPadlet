@@ -121,7 +121,10 @@ export async function handleMedia(req: Request, path: string[]): Promise<Respons
     } else if (file.uploader_id !== principal.id && !access.can_manage) fail(404, 'NOT_FOUND', '파일을 찾을 수 없습니다.');
     const object = await getObject(file.storage_key);
     const disposition = file.mime.startsWith('image/') ? 'inline' : 'attachment';
-    return new Response(object.body, { headers: { 'Content-Type': file.mime, 'Content-Length': String(file.bytes), 'Content-Disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } });
+    // Each upload gets a fresh storage key, so the bytes behind this URL never change. The viewer's browser may keep them a
+    // day instead of re-downloading through Worker + Supabase egress on every board open. Access is still checked on every
+    // fetch; like any downloaded content, a copy already cached on a device is not recalled by a later revoke (PRD 7).
+    return new Response(object.body, { headers: { 'Content-Type': file.mime, 'Content-Length': String(file.bytes), 'Content-Disposition': `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'Cache-Control': 'private, max-age=86400, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } });
   }
   return null;
 }

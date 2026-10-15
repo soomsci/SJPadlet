@@ -5,6 +5,7 @@ import type { BoardView, PostDraft } from '@contracts';
 import { api, ApiRequestError } from '@ui';
 import { DraftCompose } from '../../apps/web/src/features/boards/draft-compose';
 vi.mock('@ui', async importOriginal => { const original = await importOriginal<typeof import('@ui')>(); return { ...original, api: vi.fn() }; });
+vi.mock('@features/uploads', () => ({ compressClassroomImage: async (file: File) => file }));
 const mockedApi = vi.mocked(api);
 const view: BoardView = { board: { id:'synthetic-board',owner_id:'synthetic-teacher',title:'합성 수업',description:'',format:'columns',state:'open',participation_mode:'both',moderation:false,allow_comments:true,allow_reactions:true,anonymous_display:true,color:'#ffffff',version:1,created_at:'2026-01-01T00:00:00Z',updated_at:'2026-01-01T00:00:00Z',deleted_at:null },sections:[{id:'synthetic-section',board_id:'synthetic-board',title:'합성 모둠',rank:0}],posts:[],can_manage:false,can_write:true,submission_only:false,principal:{id:'synthetic-author',role:'anonymous',display_name:'합성 참여자'} };
 const makeDraft = (extra: Partial<PostDraft> = {}): PostDraft => ({id:'00000000-0000-4000-8000-000000000001',board_id:view.board.id,principal_id:view.principal.id,edit_post_id:null,edit_post_version:null,section_id:view.sections[0].id,title:'합성 저장 제목',body:'합성 저장 내용',link:'',color:'#ffffff',attachment_ids:[],version:3,created_at:'2026-01-01T00:00:00Z',updated_at:'2026-01-01T00:00:00Z',...extra});
@@ -53,6 +54,21 @@ describe('durable compose drafts',()=>{
   const {onSaved}=setup();await screen.findByText('이미지 첨부 · 자동 압축');const original=mockedApi.getMockImplementation()!;let tries=0;mockedApi.mockImplementation(async(path,init)=>{if(init?.method==='POST'){if(tries++===0)throw new TypeError('합성 네트워크 실패');return{view};}return original(path,init);});fireEvent.change(screen.getByRole('textbox',{name:'제목'}),{target:{value:'재시도 합성 제목'}});const form=screen.getByRole('textbox',{name:'제목'}).closest('form')!;fireEvent.submit(form);await screen.findByText('합성 네트워크 실패');fireEvent.submit(form);await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());const puts=mockedApi.mock.calls.filter(([,init])=>init?.method==='PUT'),posts=mockedApi.mock.calls.filter(([,init])=>init?.method==='POST');expect(puts).toHaveLength(1);expect(posts).toHaveLength(2);const [first,second]=posts.map(([,init])=>init!);expect(second.headers).toEqual(first.headers);
   // Same content and retry key; the retry also consumes the draft saved after the first attempt failed.
   const {draft_id,draft_version,...retried}=JSON.parse(second.body as string);expect(retried).toEqual(JSON.parse(first.body as string));expect(draft_version).toBe(1);expect(draft_id).toBeTruthy();
+ });
+ it('posts without a title but asks for some content when everything is empty',async()=>{
+  const {onSaved}=setup();await screen.findByText('이미지 첨부 · 자동 압축');const form=screen.getByRole('textbox',{name:'내용'}).closest('form')!;
+  fireEvent.submit(form);expect((await screen.findByRole('alert')).textContent).toContain('하나는 입력해주세요');expect(mockedApi.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+  fireEvent.change(screen.getByRole('textbox',{name:'내용'}),{target:{value:'제목 없이 쓴 합성 생각'}});fireEvent.submit(form);
+  await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());const posted=mockedApi.mock.calls.find(([,init])=>init?.method==='POST')!;expect(JSON.parse(posted[1]!.body as string)).toMatchObject({title:'',body:'제목 없이 쓴 합성 생각'});
+ });
+ it('uploads up to three photos at once and keeps the picked order',async()=>{
+  const {onSaved}=setup();await screen.findByText('이미지 첨부 · 자동 압축');const original=mockedApi.getMockImplementation()!;let active=0,peak=0;
+  mockedApi.mockImplementation(async(path,init)=>{if(String(path).endsWith('/attachments')){active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,5));active--;const file=(init!.body as FormData).get('file') as File;return{id:file.name,name:file.name,mime:'image/jpeg',bytes:1,status:'ready'};}return original(path,init);});
+  const picked=['a','b','c','d'].map(name=>new File(['x'],name,{type:'image/jpeg'}));
+  fireEvent.change(screen.getByLabelText('첨부 파일 선택'),{target:{files:picked}});
+  await waitFor(()=>expect(screen.getByText('이미지 첨부 · 자동 압축')).toBeTruthy());expect(peak).toBe(3);
+  fireEvent.change(screen.getByRole('textbox',{name:'제목'}),{target:{value:'사진 네 장'}});fireEvent.submit(screen.getByRole('textbox',{name:'제목'}).closest('form')!);
+  await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());const posted=mockedApi.mock.calls.find(([,init])=>init?.method==='POST'&&typeof init.body==='string')!;expect(JSON.parse(posted[1]!.body as string).attachment_ids).toEqual(['a','b','c','d']);
  });
  it('preserves a deleted section until the author explicitly chooses a replacement',async()=>{
   const original=mockedApi.getMockImplementation()!;mockedApi.mockImplementation(async(path,init)=>{if(path!=='/api/upload-policy'&&!init?.method)return makeDraft({section_id:'removed-section'});return original(path,init);});setup(makeDraft().id);await screen.findByDisplayValue('합성 저장 내용');expect(screen.getByText(/이 초안의 섹션이 삭제/)).toBeTruthy();expect((screen.getByRole('combobox',{name:'섹션'}) as HTMLSelectElement).value).toBe('removed-section');expect(mockedApi.mock.calls.some(([,init])=>init?.method==='PUT')).toBe(false);fireEvent.change(screen.getByRole('combobox',{name:'섹션'}),{target:{value:'synthetic-section'}});expect(screen.queryByText(/이 초안의 섹션이 삭제/)).toBeNull();

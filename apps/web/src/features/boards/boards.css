@@ -99,3 +99,7 @@ body:has(.boards-workspace) .brand-mark { width: 32px; height: 32px; border-radi
   .boards-workspace-toolbar .button { min-height: 36px; padding: 8px 12px; }
   .boards-workspace-toolbar .boards-toolbar-right { display: none; }
 }
+.boards-comment { position: relative; }
+.boards-comment:has(.boards-comment-delete) { padding-right: 34px; }
+.boards-comment-delete { position: absolute; top: 4px; right: 4px; min-width: 28px; min-height: 28px; padding: 4px; opacity: .65; }
+.boards-comment-delete:hover, .boards-comment-delete:focus-visible { opacity: 1; }

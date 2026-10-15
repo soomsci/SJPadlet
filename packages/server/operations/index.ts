@@ -64,6 +64,17 @@ function candidateQuery() {
     AND NOT EXISTS(SELECT 1 FROM backup_object_refs r JOIN operation_runs o ON o.id=r.backup_id WHERE r.storage_key=a.storage_key AND o.status IN ('completed','running') AND o.storage_key IS NOT NULL)
     ORDER BY a.created_at LIMIT 100`;
 }
+const purgeQuery = 'SELECT b.id FROM boards b WHERE b.deleted_at IS NOT NULL AND b.deleted_at<$1 AND NOT EXISTS(SELECT 1 FROM attachments a WHERE a.board_id=b.id)';
+/** Removes a trashed board and every row that references it (children first). Audit events keep their 90-day retention. */
+async function purgeBoard(tx: Database, boardId: string) {
+  const posts = 'SELECT id FROM posts WHERE board_id=$1';
+  for (const statement of [
+    'DELETE FROM post_drafts WHERE board_id=$1', `DELETE FROM comments WHERE post_id IN (${posts})`, `DELETE FROM reactions WHERE post_id IN (${posts})`,
+    'DELETE FROM posts WHERE board_id=$1', 'DELETE FROM sections WHERE board_id=$1', 'DELETE FROM participations WHERE board_id=$1', 'DELETE FROM share_links WHERE board_id=$1',
+    'DELETE FROM board_blocks WHERE board_id=$1', 'DELETE FROM favorites WHERE board_id=$1', 'DELETE FROM board_members WHERE board_id=$1', 'DELETE FROM board_member_invites WHERE board_id=$1',
+    'DELETE FROM outbox_events WHERE board_id=$1', 'DELETE FROM boards WHERE id=$1',
+  ]) await tx.run(statement, [boardId]);
+}
 export async function cleanupCandidates(db: Database) { return db.all<Attachment>(candidateQuery(), [cutoff(14), cutoff(30)]); }
 export async function performCleanup(db: Database, actor = 'scheduled') {
   const runId = await startRun(db, 'cleanup', actor); let removed = 0, bytes = 0;
@@ -82,13 +93,22 @@ export async function performCleanup(db: Database, actor = 'scheduled') {
         await tx.run('DELETE FROM attachments WHERE id=$1', [item.id]); removed++; bytes += item.bytes;
       });
     }
+    // Trash keeps boards 30 days. A board is purged only once its files are gone (removed above, 100 per run).
+    let purged = 0;
+    for (const board of await db.all<{ id: string }>(purgeQuery, [cutoff(30)])) {
+      await db.transaction(async tx => {
+        await tx.run('SELECT id FROM boards WHERE id=$1 FOR UPDATE', [board.id]);
+        if (!(await tx.all<{ id: string }>(purgeQuery + ' AND b.id=$2', [cutoff(30), board.id])).length) return; // restored or files added meanwhile
+        await purgeBoard(tx, board.id); purged++;
+      });
+    }
     await db.run('DELETE FROM oauth_states WHERE expires_at<$1', [now()]);
     await db.run('DELETE FROM sessions WHERE expires_at<$1', [now()]);
     await db.run('DELETE FROM rate_limits WHERE resets_at<$1', [now()]);
     await db.run('DELETE FROM idempotency WHERE created_at<$1', [cutoff(14)]);
     await db.run('DELETE FROM audit_events WHERE created_at<$1', [cutoff(90)]);
     await db.run('DELETE FROM outbox_events WHERE created_at<$1', [cutoff(7)]);
-    return await finishRun(db, runId, 'completed', `오래된 첨부 ${removed}개를 정리했습니다.`, bytes);
+    return await finishRun(db, runId, 'completed', `오래된 첨부 ${removed}개, 휴지통 게시판 ${purged}개를 정리했습니다.`, bytes);
   } catch (error) { await finishRun(db, runId, 'failed', `첨부 ${removed}개 정리 후 중단되었습니다. 다시 실행할 수 있습니다.`, bytes); throw error; }
 }
 export async function runMaintenance() {
