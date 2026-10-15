@@ -40,7 +40,7 @@ npm run dev:node
 
 `http://localhost:3000`에서 `데모 교사로 체험`을 사용할 수 있다. 데모는 개발 모드·localhost·명시적 환경 설정에서만 허용되며 Cloudflare Worker는 항상 이를 비활성화한다. 개발 데이터는 `.data/postgres`, 첨부는 `.data/uploads`다. 별도 브라우저로 공유 링크에 접속하면 익명 참여를 확인할 수 있다. localhost QR은 다른 기기에서 열리지 않으므로 휴대전화 검증은 실제 서비스 주소에서 수행한다.
 
-Next.js 컨테이너 방식은 `npm run build:node`, `npm run start:node`와 Dockerfile로 남겨 두었다. 이 방식의 일반 파일 업로드에는 영속 볼륨과 ClamAV가 필요하며 무료 배포 경로와 다르다.
+Next.js 컨테이너 방식은 `npm run build:node`, `npm run start:node`와 Dockerfile로 남겨 두었다. 이 방식의 일반 파일 업로드에는 영속 볼륨과 ClamAV가 필요하며 무료 배포 경로와 다르다. 학교 PC 한 대로 운영하는 구성(PostgreSQL·ClamAV·Caddy HTTPS·매일 정리·백업)은 `deploy/selfhost/`에 있고, 설치·운영 절차는 [자체 서버 안내](docs/SELF_HOST.md)를 따른다. 매일 정리 작업만 따로 실행하려면 `node --import tsx scripts/maintenance.ts`.
 
 ## 권한과 공유
 

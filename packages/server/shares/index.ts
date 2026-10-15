@@ -10,8 +10,9 @@ import { fail, input, json } from '@server/common/http';
 
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
 const normalizeCode = (value:string) => value.replace(/[\s-]/g,'').toUpperCase();
-// Cloudflare sets CF-Connecting-IP and overwrites client copies; only a hash is kept as a short-lived rate-limit key.
-const client = (req:Request) => hash('ip:'+(req.headers.get('cf-connecting-ip')||'unknown')).slice(0,24);
+// Cloudflare sets CF-Connecting-IP and overwrites client copies. On the self-hosted server Caddy is the only entry point and
+// replaces X-Forwarded-For with the real peer address (the app port is not published). Only a hash is kept as a rate-limit key.
+const client = (req:Request) => hash('ip:'+(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0].trim()||'unknown')).slice(0,24);
 const joinInput = z.object({token:z.string().min(20).max(200).optional(),code:z.string().min(4).max(30).optional(),mode:z.enum(['anonymous','login']),display_name:z.string().trim().max(40).optional(),continue:z.boolean().optional()}).refine(v=>Boolean(v.token)!==Boolean(v.code),'링크 또는 참여 코드 하나를 입력해주세요.');
 const metadata = (share:Share) => ({id:share.id,board_id:share.board_id,target_type:share.target_type,target_id:share.target_id,scope:share.scope,expires_at:share.expires_at,revoked_at:share.revoked_at,version:share.version,created_at:share.created_at});
 

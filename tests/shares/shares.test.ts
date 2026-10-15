@@ -110,4 +110,11 @@ describe('shared classroom devices and per-client limits',()=>{
   await expect(join({code:'AABBCCDDEE',mode:'anonymous'},undefined,'198.51.100.7')).rejects.toMatchObject({code:'RATE_LIMITED'});
   await expect(join({code:'AABBCCDDEE',mode:'anonymous'},undefined,'198.51.100.8')).rejects.toSatisfy((error:{code?:string})=>error.code!=='RATE_LIMITED');
  });
+ it('uses the proxy-set X-Forwarded-For client on the self-hosted server, never ahead of CF-Connecting-IP',async()=>{
+  const key='share.code.ip.'+digest('ip:203.0.113.9').slice(0,24);
+  await (await getDb()).run('INSERT INTO rate_limits(key,count,resets_at) VALUES($1,200,$2) ON CONFLICT(key) DO UPDATE SET count=200,resets_at=EXCLUDED.resets_at',[key,new Date(Date.now()+60000).toISOString()]);
+  const forwarded=(cf?:string)=>{const req=request('join',{code:'AABBCCDDEE',mode:'anonymous'});req.headers.set('x-forwarded-for','203.0.113.9');if(cf)req.headers.set('cf-connecting-ip',cf);return handleShares(req,['join']);};
+  await expect(forwarded()).rejects.toMatchObject({code:'RATE_LIMITED'});
+  await expect(forwarded('198.51.100.20')).rejects.toSatisfy((error:{code?:string})=>error.code!=='RATE_LIMITED');
+ });
 });

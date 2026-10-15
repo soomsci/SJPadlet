@@ -217,3 +217,13 @@ Supabase 보안 advisor에는 오류/경고가 없었으며, 앱 테이블의 �
 - 이어서 `npm run deploy:free`로 PR #7(무료 한도·속도), #8(제목 바로 수정·메뉴 자동 닫기), #9(댓글 삭제·제목 선택·휴지통 삭제·사진 캐시 등)를 배포했다. 배포 전 전체 검사(테스트 212개)가 통과했고, Worker 버전 `68748f4b-a868-41d9-9a7f-512a4a326423`, Cron `0 18 * * *`(KST 03:00)이 등록됐다.
 - 배포 후 운영 주소에서 `/api/health` → `{"data":{"status":"ok"}}`, 첫 화면 200을 확인했다.
 - 미검증: 실제 화면의 제목 수정·메뉴 닫기·댓글 삭제·제목 없는 글, 사진 캐시와 게시 속도 체감, Hyperdrive 일일 쿼리 사용량 실측.
+
+## 학교 PC 자체 서버 구성 (준비)
+
+2026-10-15 사용자 요청: 학교 교사망의 고정 IP Windows PC로 운영하는 방안. `samjeong.ms.kr` 하위 도메인 사용 가능.
+
+- `deploy/selfhost/`: Docker Compose(앱·PostgreSQL 17·ClamAV·Caddy·매일 정리·매일 백업), Caddyfile, `.env.example`. 기존 Node 모드(Next.js + `DATABASE_URL` + 로컬 업로드 + SSE)를 그대로 쓴다. 바깥 포트는 Caddy 80·443뿐이다.
+- `scripts/maintenance.ts`: Worker Cron과 같은 `runMaintenance`를 Node에서 실행(매일 03:00 KST, compose `daily`).
+- 접속자별 요청 한도: `CF-Connecting-IP`가 없으면 Caddy가 넣는 `X-Forwarded-For` 첫 값을 쓴다(테스트 1개 추가). Cloudflare 배포 동작은 그대로다.
+- 안내서 [SELF_HOST.md](SELF_HOST.md): 공인 IP·포트포워딩·교육청 승인 확인, DNS·OAuth 리디렉션 추가, Docker Desktop·전원·방화벽 설정, 실행·확인, 업데이트·백업·복원, 무료 배포와의 차이.
+- 검증: `npm run build:node` 성공, 정리 스크립트 실행(PGlite), compose YAML 구조 확인. **Docker 실제 기동·HTTPS 발급·학교망 외부 접속·데이터 이전은 미검증/미구현**(이 개발 환경에 Docker 없음).
