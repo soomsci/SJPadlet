@@ -17,7 +17,7 @@ it('renews the realtime ticket without refetching an unchanged board', async () 
   const stop = watchBoard('b', refresh, () => {});
   await vi.advanceTimersByTimeAsync(0);
   subscription.callback?.('SUBSCRIBED');
-  await vi.advanceTimersByTimeAsync(2000);
+  await vi.advanceTimersByTimeAsync(3500);
   expect(refresh).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(3 * 45000);
   expect(apiMock).toHaveBeenCalledTimes(4);

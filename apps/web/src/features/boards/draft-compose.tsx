@@ -87,16 +87,26 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
     if (latest.current.attachment_ids.length + picked.length > 5) { setError('파일은 글 하나에 5개까지 첨부할 수 있어요.'); return; }
     setUploading(true); setError('');
     try {
-      for (const original of Array.from(picked)) {
-        const file = policy.images_only ? await compressClassroomImage(original) : original;
-        const form = new FormData(); form.append('file', file);
-        const uploaded = await api<Attachment>(`/api/boards/${view.board.id}/attachments`, { method: 'POST', body: form });
-        setFiles(current => [...current, uploaded]); setContent(current => ({ ...current, attachment_ids: [...current.attachment_ids, uploaded.id] }));
+      // Up to three photos compress and upload at once; results are added in the order they were picked.
+      const files = Array.from(picked);
+      for (let start = 0; start < files.length; start += 3) {
+        const results = await Promise.allSettled(files.slice(start, start + 3).map(async original => {
+          const file = policy.images_only ? await compressClassroomImage(original) : original;
+          const form = new FormData(); form.append('file', file);
+          return api<Attachment>(`/api/boards/${view.board.id}/attachments`, { method: 'POST', body: form });
+        }));
+        const uploaded = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+        setFiles(current => [...current, ...uploaded]); setContent(current => ({ ...current, attachment_ids: [...current.attachment_ids, ...uploaded.map(file => file.id)] }));
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }
     } catch (error) { setError(message(error)); } finally { setUploading(false); }
   };
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); if (busy || uploading || loading) return; setBusy(true); setError('');
+    event.preventDefault(); if (busy || uploading || loading) return;
+    const current = latest.current;
+    if (!current.title.trim() && !current.body.trim() && !current.link && !current.attachment_ids.length) { setError('제목, 내용, 링크, 사진 중 하나는 입력해주세요.'); return; }
+    setBusy(true); setError('');
     try {
       // Publish directly: a draft is consumed only if one was already autosaved, and the text is saved as a draft
       // only when publishing fails. (Force-saving first cost a whole extra request on every post.)
@@ -127,7 +137,7 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
     {loading ? <>{!error && <Spinner />}{error && <Notice>{error}</Notice>}</> : <form className="boards-form" onSubmit={submit}>
       <div className="draft-status"><span role="status">{saving ? '초안 저장 중…' : savedAt ? '초안 저장됨 · 14일 보관' : '입력하면 자동으로 초안이 저장됩니다'}</span><button type="button" className="button ghost" disabled={busy || uploading} onClick={() => void leave(true)}><Minimize2 size={16} />최소화</button></div>
       {view.board.moderation && !view.can_manage && <p className="boards-help"><ShieldCheck size={16} />선생님 확인 후 공개됩니다. 수정하면 다시 승인을 받아요.</p>}
-      <label className="field board-compose-title">제목<input ref={titleInput} className="input" autoComplete="off" required maxLength={200} disabled={busy || !view.can_write} value={content.title} onChange={event => update({ title: event.target.value })} placeholder="어떤 생각을 발견했나요?" /></label>
+      <label className="field board-compose-title">제목<input ref={titleInput} className="input" autoComplete="off" maxLength={200} disabled={busy || !view.can_write} value={content.title} onChange={event => update({ title: event.target.value })} placeholder="어떤 생각을 발견했나요? (선택)" /></label>
       <label className="field board-compose-body">내용<textarea className="textarea" rows={6} maxLength={10000} disabled={busy || !view.can_write} value={content.body} onChange={event => update({ body: event.target.value })} placeholder="생각, 질문, 발견을 자유롭게 적어주세요." /></label>
       {sectionMissing && <Notice>이 초안의 섹션이 삭제되었습니다. 내용은 유지됩니다. 새 섹션을 선택해주세요.</Notice>}
       <div className="boards-form-row"><label className="field">섹션<select className="select" value={content.section_id ?? ''} disabled={busy || !view.can_write || (!!sectionId && !view.can_manage && !sectionMissing)} onChange={event => update({ section_id: event.target.value || null })}>{sectionMissing && <option value={content.section_id!}>삭제된 섹션 · 위치 선택 필요</option>}<option value="">미분류</option>{view.sections.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label className="field">참고 링크<span className="input draft-link"><span aria-hidden="true">{linkScheme}</span><input type="text" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={busy || !view.can_write} value={content.link.replace(/^https?:\/\//i, '')} onChange={event => setLink(event.target.value)} placeholder="주소 붙여넣기" /></span></label></div>

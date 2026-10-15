@@ -201,3 +201,22 @@ it('closes open menus on an outside click, on Escape, and after choosing an item
   expect(screen.getByRole('dialog')).toBeTruthy();
   expect(within(menu.closest('article')!).getByPlaceholderText('댓글')).toBeTruthy();
 });
+
+it('lets a teacher delete a comment and offers to publish waiting posts when approval is turned off', async () => {
+  const comment = { id: 'comment-1', body: '합성 댓글', author_name: '예시 참여자', is_mine: false, created_at: '2026-10-12T00:00:00Z' };
+  const view = { ...boardFixture, board: { ...boardFixture.board, moderation: true }, posts: boardFixture.posts.map((post, n) => n === 0 ? { ...post, status: 'pending', comments: [comment] } : post) };
+  const calls: [string, RequestInit | undefined][] = [];
+  vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => { calls.push([path, init]); return new Response(JSON.stringify({ data: path === '/api/upload-policy' ? { images_only: true, max_bytes: 1048576 } : path.endsWith('/drafts') ? [] : view })); }));
+  const confirm = vi.fn(() => true); vi.stubGlobal('confirm', confirm);
+  render(<BoardWorkspace boardId="preview-board" />);
+  fireEvent.click(await screen.findByRole('button', { name: '예시 참여자 댓글 삭제' }));
+  await waitFor(() => expect(calls.some(([path, init]) => path === '/api/posts/post-0/comments/comment-1' && init?.method === 'DELETE')).toBe(true));
+  fireEvent.click(screen.getByRole('button', { name: '게시판 설정' }));
+  const dialog = screen.getByRole('dialog', { name: '수업 공간 설정' });
+  fireEvent.click(within(dialog).getByRole('switch', { name: /교사 승인 후 공개/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: '설정 저장' }));
+  await waitFor(() => expect(calls.some(([path, init]) => path === '/api/boards/preview-board' && init?.method === 'PATCH')).toBe(true));
+  const patch = calls.find(([path, init]) => path === '/api/boards/preview-board' && init?.method === 'PATCH')!;
+  expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ moderation: false, publish_pending: true });
+  expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('승인 대기 중인 글 1개'));
+});

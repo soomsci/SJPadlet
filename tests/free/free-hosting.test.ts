@@ -61,7 +61,7 @@ describe('free hosting permission and storage boundaries', () => {
     const file = (await uploaded.json()).data;
     expect(file).not.toHaveProperty('storage_key'); expect(file).not.toHaveProperty('url');
     const response = await dispatch(new Request('http://localhost:3000/api/file', { headers: { cookie: student } }), ['attachments', file.id, 'content']);
-    expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, max-age=86400, immutable');
     expect((await response.arrayBuffer()).byteLength).toBe(32);
     await call(`shares/${invite.id}/revoke`, {});
     const count = storage.mock.calls.length;

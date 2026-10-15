@@ -4,7 +4,8 @@ export async function compressClassroomImage(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file);
   try {
     if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 40_000_000) throw new Error('이미지 해상도가 너무 큽니다. 크기를 줄여주세요.');
-    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    // 1280px keeps text in photos legible on a projector at roughly half the bytes of 1600px.
+    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');

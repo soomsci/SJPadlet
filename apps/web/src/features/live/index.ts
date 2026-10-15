@@ -15,7 +15,7 @@ export function watchBoard(boardId: string, refresh: () => Promise<void>, status
       if (stopped) return;
       inflight = true; pending = false;
       try { await refresh(); } finally { inflight = false; if (pending) invalidate(); }
-    }, 200 + Math.random() * 1300); // Spread clients so one change does not trigger a synchronized full refetch burst.
+    }, 1000 + Math.random() * 2000); // Spread clients and coalesce bursts (likes, comments) so one class does not refetch per event.
   };
   const renew = async () => {
     if (stopped) return;

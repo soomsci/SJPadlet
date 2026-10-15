@@ -64,7 +64,7 @@ export function Presentation({view,initialSectionId,onClose}:{view:BoardView;ini
   {notice&&<p className="board-presentation-notice" role="status">{notice}</p>}
   <main className="board-presentation-stage">
    {post?<article className="board-presentation-slide" key={post.id} style={{backgroundColor:post.color}} aria-label="발표 슬라이드">
-    <p className="board-presentation-author">{post.author_name}</p><h2>{post.title}</h2>{post.body&&<p className="board-presentation-body">{post.body}</p>}
+    <p className="board-presentation-author">{post.author_name}</p>{post.title&&<h2>{post.title}</h2>}{post.body&&<p className="board-presentation-body">{post.body}</p>}
     {!!post.attachments.filter(file=>file.status==='ready'&&file.mime.startsWith('image/')).length&&<div className="board-presentation-images">{post.attachments.filter(file=>file.status==='ready'&&file.mime.startsWith('image/')).map(file=><img key={file.id} src={`/api/attachments/${encodeURIComponent(file.id)}/content`} alt={file.name}/>)}</div>}
     {post.link&&/^https?:\/\//.test(post.link)&&<a className="board-presentation-link" href={post.link} target="_blank" rel="noopener noreferrer"><ExternalLink size={18}/><span>{post.link}</span></a>}
    </article>:<div className="board-presentation-empty"><PresentationIcon size={48}/><h2>발표할 공개 글이 없어요</h2><p>승인 대기·반려·숨긴 글과 초안은 발표에 표시되지 않습니다.</p></div>}
