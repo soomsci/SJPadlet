@@ -56,15 +56,15 @@ function normalizeDraft(row: PostDraft): PostDraft {
 }
 function sameVersion(actual: number, expected: number) { if (actual !== expected) fail(409, 'CONFLICT', '다른 창에서 초안이 변경되었습니다. 현재 입력은 유지되며 자동 저장을 중지했습니다.'); }
 
-/** Consumes exactly the author's saved version inside the successful post transaction. */
-export async function consumeDraft(tx: Database, principal: Principal, boardId: string, data: { draft_id?: string; draft_version?: number; edit_post_id?: string | null }) {
+/** Consumes exactly the author's saved version inside the successful post transaction. `known` reuses the caller's access computed under the same board lock. */
+export async function consumeDraft(tx: Database, principal: Principal, boardId: string, data: { draft_id?: string; draft_version?: number; edit_post_id?: string | null }, known?: BoardAccess) {
   if (!data.draft_id && data.draft_version === undefined) return;
   if (!data.draft_id || !Number.isInteger(data.draft_version) || (data.draft_version ?? 0) < 1) fail(400, 'INVALID_INPUT', '게시할 초안 버전을 확인해주세요.');
   const draft = await tx.one<PostDraft>('SELECT * FROM post_drafts WHERE id=$1 AND board_id=$2 AND principal_id=$3 FOR UPDATE', [data.draft_id, boardId, principal.id]);
   if (!draft || draft.updated_at < cutoff()) fail(404, 'NOT_FOUND', '초안을 찾을 수 없습니다.');
   sameVersion(draft.version, data.draft_version!);
   if (draft.edit_post_id !== (data.edit_post_id ?? null)) fail(409, 'CONFLICT', '초안의 편집 대상이 일치하지 않습니다.');
-  const access = await boardAccess(tx, principal, boardId); writable(access);
+  const access = known ?? await boardAccess(tx, principal, boardId); writable(access);
   if (!await allowed(tx, principal, access, draft)) fail(403, 'FORBIDDEN', '초안의 작성 권한이 변경되었습니다.');
   await checkEditVersion(tx, draft);
   await attachments(tx, principal, boardId, normalizeDraft(draft));

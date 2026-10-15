@@ -17,7 +17,7 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
   const [policy, setPolicy] = useState<{ images_only: boolean; max_bytes: number } | null>(null);
   const [identity] = useState(() => draftId ?? crypto.randomUUID()), [requestKey] = useState(() => crypto.randomUUID());
   const titleInput = useRef<HTMLInputElement>(null), restoreFocused = useRef(false);
-  const attemptedPost = useRef<{ serialized: string; payload: Content & { draft_id: string; draft_version: number } } | null>(null);
+  const attemptedPost = useRef<{ serialized: string; payload: Content & { draft_id?: string; draft_version?: number } } | null>(null);
   const latest = useRef(content), persisted = useRef(JSON.stringify(initial)), version = useRef(0), pending = useRef<Promise<PostDraft> | null>(null), conflict = useRef(false), draft = useRef<PostDraft | null>(null), alive = useRef(true);
   latest.current = content;
   const draftPath = `/api/boards/${view.board.id}/drafts/${identity}`;
@@ -98,18 +98,24 @@ export function DraftCompose({ view, post, sectionId, draftId, onClose, onSaved,
   const submit = async (event: FormEvent) => {
     event.preventDefault(); if (busy || uploading || loading) return; setBusy(true); setError('');
     try {
+      // Publish directly: a draft is consumed only if one was already autosaved, and the text is saved as a draft
+      // only when publishing fails. (Force-saving first cost a whole extra request on every post.)
+      while (pending.current) await pending.current.catch(() => null);
       const serialized = JSON.stringify(latest.current);
       const retry = attemptedPost.current?.serialized === serialized ? attemptedPost.current : null;
-      const saved = retry ? null : await save(true);
-      if (!retry && !saved) throw new Error('초안을 저장하지 못했습니다.');
       const target = latest.current.edit_post_id ? view.posts.find(item => item.id === latest.current.edit_post_id) : undefined;
       if (latest.current.edit_post_id && !target) throw new Error('편집할 글을 찾을 수 없습니다. 입력은 초안에 보관됩니다.');
-      const data = retry?.payload ?? { ...latest.current, ...(target ? { version: latest.current.edit_post_version ?? target.version } : {}), draft_id: identity, draft_version: saved!.version };
+      const saved = draft.current ? { draft_id: identity, draft_version: draft.current.version } : {};
+      const data = { ...(retry?.payload ?? { ...latest.current, ...(target ? { version: latest.current.edit_post_version ?? target.version } : {}) }), ...saved };
       if (!target) attemptedPost.current = { serialized, payload: data };
       if (target) onSaved(await api<BoardView>(`/api/posts/${target.id}`, { method: 'PATCH', body: JSON.stringify(data) }));
       else { const result = await api<{ view: BoardView }>(`/api/boards/${view.board.id}/posts`, { method: 'POST', headers: { 'Idempotency-Key': requestKey }, body: JSON.stringify(data) }); onSaved(result.view); }
       persisted.current = JSON.stringify(latest.current); onClose();
-    } catch (error) { if (error instanceof ApiRequestError && error.status < 500) attemptedPost.current = null; setError(message(error)); } finally { if (alive.current) setBusy(false); }
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status < 500) attemptedPost.current = null;
+      await save().catch(() => null); // Keep the typed answer as a server draft; the composer stays open either way.
+      if (alive.current) setError(message(error));
+    } finally { if (alive.current) setBusy(false); }
   };
   const discard = async () => {
     if (busy || uploading || !window.confirm('작성 중인 초안을 삭제할까요? 이 내용은 복원할 수 없습니다.')) return;

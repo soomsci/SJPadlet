@@ -74,7 +74,7 @@ export async function handleMedia(req: Request, path: string[]): Promise<Respons
     const data = Buffer.from(await file.arrayBuffer()), mime = validateFile(file.name, data), status = await scan(data);
     if (status === 'rejected') fail(400, 'UPLOAD_REJECTED', '안전하지 않은 파일이 감지되었습니다.');
     const attachment: Attachment = { id: id(), board_id: path[1], post_id: null, uploader_id: principal.id, name: basename(file.name).slice(0, 200), mime, bytes: data.length, storage_key: randomBytes(24).toString('hex'), status, created_at: now() };
-    let stored = false;
+    let reserved = false;
     try {
       await db.transaction(async tx => {
         // Serialize the school-wide budget check, including uploads to different
@@ -92,12 +92,19 @@ export async function handleMedia(req: Request, path: string[]): Promise<Respons
         if (Number(usage?.bytes) + data.length > policy.boardBytes) fail(413, 'UPLOAD_REJECTED', '게시판 저장 공간이 가득 찼습니다.');
         const ownerUsage = await tx.one<{ bytes: string }>('SELECT COALESCE(SUM(a.bytes),0) AS bytes FROM attachments a JOIN boards b ON b.id=a.board_id WHERE b.owner_id=$1', [fresh.board.owner_id]);
         if (Number(ownerUsage?.bytes) + data.length > policy.teacherBytes) fail(413, 'UPLOAD_REJECTED', '교사 저장 공간이 가득 찼습니다.');
-        await putObject(attachment.storage_key, data, mime); stored = true;
-        await tx.run('INSERT INTO attachments(id,board_id,post_id,uploader_id,name,mime,bytes,storage_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', Object.values(attachment));
+        // Reserve the bytes as a non-downloadable row; the Storage call happens after the budget lock is released
+        // so a class uploading at once does not queue behind each other's HTTP uploads.
+        await tx.run('INSERT INTO attachments(id,board_id,post_id,uploader_id,name,mime,bytes,storage_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', Object.values({ ...attachment, status: 'quarantined' }));
         await audit(tx, principal.id, 'attachment.upload', attachment.id);
       });
+      reserved = true;
+      await putObject(attachment.storage_key, data, mime);
+      if (status !== 'quarantined') await db.run('UPDATE attachments SET status=$2 WHERE id=$1', [attachment.id, status]);
     } catch (error) {
-      if (stored) await deleteObject(attachment.storage_key).catch(() => { console.error(JSON.stringify({ code: 'STORAGE_CLEANUP_FAILED', attachment_id: attachment.id })); });
+      if (reserved) {
+        await deleteObject(attachment.storage_key).catch(() => { console.error(JSON.stringify({ code: 'STORAGE_CLEANUP_FAILED', attachment_id: attachment.id })); });
+        await db.run('DELETE FROM attachments WHERE id=$1', [attachment.id]).catch(() => { console.error(JSON.stringify({ code: 'RESERVATION_CLEANUP_FAILED', attachment_id: attachment.id })); });
+      }
       throw error;
     }
     return json({ id: attachment.id, name: attachment.name, mime, bytes: data.length, status }, 201);

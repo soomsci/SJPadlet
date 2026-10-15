@@ -87,6 +87,12 @@ describe('shared classroom devices and per-client limits',()=>{
   expect(await getPrincipal(request('me',undefined,a))).toBeNull();
   expect((await getPrincipal(request('me',undefined,b)))?.display_name).toBe('학생 나');
  });
+ it('ends a signed-in session on the device when that user joins anonymously instead',async()=>{
+  const token=(await create()).url.split('/').at(-1);const google=await makePrincipal('student');
+  const anonymous=cookieOf(await join({token,mode:'anonymous'},google.cookie));
+  expect(await getPrincipal(request('me',undefined,google.cookie))).toBeNull();
+  expect((await getPrincipal(request('me',undefined,anonymous)))?.role).toBe('anonymous');
+ });
  it('keeps the same anonymous identity only when the student explicitly continues',async()=>{
   const token=(await create()).url.split('/').at(-1);const a=cookieOf(await join({token,mode:'anonymous',display_name:'학생 가'}));
   const before=await getPrincipal(request('me',undefined,a));const resumed=await join({token,mode:'anonymous',continue:true},a);
