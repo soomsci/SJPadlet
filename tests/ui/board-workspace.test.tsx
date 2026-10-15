@@ -166,3 +166,38 @@ it('lists recent posts and comments newest first in the activity panel', async (
   expect(items[0].textContent).toContain('댓글 작성자님이 댓글을 남겼어요');
   expect(items[1].textContent).toContain(boardFixture.posts[3].title);
 });
+
+it('renames the board by clicking its title and cancels with Escape', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  fireEvent.click(await screen.findByRole('button', { name: '물리 변화와 화학 변화' }));
+  let input = screen.getByRole('textbox', { name: '게시판 이름' }) as HTMLInputElement;
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: '바꾸지 않을 합성 제목' } });
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(vi.mocked(fetch).mock.calls.some(([path, init]) => path === '/api/boards/preview-board' && init?.method === 'PATCH')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '물리 변화와 화학 변화' }));
+  input = screen.getByRole('textbox', { name: '게시판 이름' }) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: '  상태 변화 탐구  ' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/boards/preview-board', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: '상태 변화 탐구', version: 1 }) })));
+  expect(screen.queryByRole('textbox', { name: '게시판 이름' })).toBeNull();
+});
+
+it('closes open menus on an outside click, on Escape, and after choosing an item', async () => {
+  render(<BoardWorkspace boardId="preview-board" />);
+  const summary = await screen.findByLabelText('얼음이 녹으면 어떤 변화일까요? 게시물 작업');
+  const menu = summary.closest('details')!, other = screen.getByLabelText('사용자 메뉴').closest('details')!;
+  menu.open = true;
+  fireEvent.pointerDown(menu.querySelector('div')!);
+  expect(menu.open).toBe(true);
+  fireEvent.pointerDown(document.body);
+  expect(menu.open).toBe(false);
+  menu.open = true; other.open = true;
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(menu.open || other.open).toBe(false);
+  menu.open = true;
+  fireEvent.click(within(menu).getByRole('button', { name: '게시물 수정' }));
+  expect(menu.open).toBe(false);
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  expect(within(menu.closest('article')!).getByPlaceholderText('댓글')).toBeTruthy();
+});

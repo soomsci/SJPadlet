@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type CSSProperties, type HTMLAttributes } from 'react';
-import { Activity, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Check, CheckCheck, ChevronDown, Columns3, Copy, Download, ExternalLink, FileText, Grid2X2, Heart, LayoutDashboard, LockKeyhole, MessageCircle, MonitorPlay, MoreHorizontal, Plus, Printer, QrCode, RotateCcw, Search, Settings2, Share2, ShieldCheck, Star, Trash2, Users } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Check, CheckCheck, ChevronDown, Columns3, Copy, Download, ExternalLink, FileText, Grid2X2, Heart, LayoutDashboard, LockKeyhole, MessageCircle, MonitorPlay, MoreHorizontal, Plus, Printer, QrCode, RotateCcw, Search, Settings2, Share2, ShieldCheck, Star, Trash2, Users, Pencil } from 'lucide-react';
 import type { Board, BoardActivity, BoardFormat, BoardView, PostDraft, PostView, Section, Share } from '@contracts';
 import { api, EmptyState, Notice, Spinner } from '@ui';
 import { ShareDialog } from '@features/share';
@@ -117,6 +117,26 @@ function ActivityPanel({ view, onClose }: { view: BoardView; onClose: () => void
   </Dialog>;
 }
 
+/** Managers rename the board by clicking its title; Enter or leaving the field saves, Escape cancels. */
+function BoardTitle({ view, onSaved }: { view: BoardView; onSaved: (view: BoardView) => void }) {
+  const [draft, setDraft] = useState<string | null>(null), [error, setError] = useState(''), cancelled = useRef(false);
+  if (!view.can_manage) return <h1>{view.board.title}</h1>;
+  const save = async () => {
+    const title = draft?.trim();
+    setDraft(null);
+    if (cancelled.current) { cancelled.current = false; return; }
+    if (!title || title === view.board.title) return;
+    try { onSaved(await api<BoardView>(`/api/boards/${view.board.id}`, { method: 'PATCH', body: body({ title, version: view.board.version }) })); setError(''); }
+    catch (error) { setError(message(error)); }
+  };
+  return <>
+    {draft === null
+      ? <h1><button type="button" className="board-title-edit" title="눌러서 제목 수정" onClick={() => setDraft(view.board.title)}>{view.board.title}<Pencil size={18} aria-hidden="true" /></button></h1>
+      : <h1><input className="input board-title-input" aria-label="게시판 이름" autoFocus required maxLength={200} value={draft} onChange={event => setDraft(event.target.value)} onBlur={() => void save()} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { cancelled.current = true; event.currentTarget.blur(); } }} /></h1>}
+    {error && <Notice>{error}</Notice>}
+  </>;
+}
+
 function PostCard({ post, view, onEdit, onChange, onShare, drag }: { post: PostView; view: BoardView; onEdit: () => void; onChange: (view: BoardView) => void; onShare: () => void; drag?: HTMLAttributes<HTMLElement> }) {
   const [expanded, setExpanded] = useState(view.board.allow_comments || post.comments.length > 0), [comment, setComment] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [commentKey, setCommentKey] = useState(() => crypto.randomUUID());
   const mutate = async (path: string, method: string, value: unknown, headers?: HeadersInit) => { setBusy(true); setError(''); try { onChange(await api<BoardView>(path, { method, body: body(value), headers })); return true; } catch (error) { setError(message(error)); return false; } finally { setBusy(false); } };
@@ -134,7 +154,7 @@ function PostCard({ post, view, onEdit, onChange, onShare, drag }: { post: PostV
     {post.attachments.map(file => <div className="boards-file-preview" key={file.id}>{file.mime.startsWith('image/') && <a href={`/api/attachments/${file.id}/content`} target="_blank" rel="noopener noreferrer"><img className="boards-post-image" src={`/api/attachments/${file.id}/content`} alt={file.name} loading="lazy" /></a>}<a className="boards-attachment-link" href={`/api/attachments/${file.id}/content`} target="_blank" rel="noopener noreferrer"><FileText size={18} /><span>{file.name}<small>{Math.max(1, Math.round(file.bytes / 1024))}KB</small></span><Download size={16} /></a></div>)}
     <div className="boards-post-tools"><div>{view.board.allow_reactions && <button className={`button ghost${post.liked ? ' liked' : ''}`} aria-label={post.liked ? '좋아요 취소' : '좋아요'} aria-pressed={post.liked} disabled={!view.can_write || busy} onClick={() => void mutate(`/api/posts/${post.id}/reaction`, 'PUT', { liked: !post.liked })}><Heart size={17} fill={post.liked ? 'currentColor' : 'none'} />{post.likes || ''}</button>}<button className="button ghost" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><MessageCircle size={17} />{post.comments.length || ''}<span className="sr-only">댓글</span></button></div></div>
 
-    {expanded && <div className="boards-comments">{post.comments.map(item => <div className="boards-comment" key={item.id}><strong>{item.author_name}</strong><p>{item.body}</p><small>{stamp(item.created_at)}</small></div>)}{view.can_write && view.board.allow_comments ? <form onSubmit={submitComment}><label className="sr-only" htmlFor={`comment-${post.id}`}>댓글 내용</label><input id={`comment-${post.id}`} className="input" required maxLength={2000} value={comment} onChange={event => setComment(event.target.value)} placeholder="따뜻한 피드백을 남겨요" /><button className="button primary icon-button" aria-label="댓글 등록" disabled={busy}><ArrowRight size={17} /></button></form> : <p className="muted">지금은 댓글을 작성할 수 없어요.</p>}</div>}{error && <Notice>{error}</Notice>}
+    {expanded && <div className="boards-comments">{post.comments.map(item => <div className="boards-comment" key={item.id}><strong>{item.author_name}</strong><p>{item.body}</p><small>{stamp(item.created_at)}</small></div>)}{view.can_write && view.board.allow_comments ? <form onSubmit={submitComment}><label className="sr-only" htmlFor={`comment-${post.id}`}>댓글 내용</label><input id={`comment-${post.id}`} className="input" required maxLength={2000} value={comment} onChange={event => setComment(event.target.value)} placeholder="댓글" /><button className="button primary icon-button" aria-label="댓글 등록" disabled={busy}><ArrowRight size={17} /></button></form> : <p className="muted">지금은 댓글을 작성할 수 없어요.</p>}</div>}{error && <Notice>{error}</Notice>}
   </article>;
 }
 
@@ -215,7 +235,7 @@ export function BoardWorkspace({ boardId, postId, sectionId, submission = false 
     </BoardChrome>
     <header className="board-heading">
       <div className="board-heading-meta"><span>{view.principal.display_name}</span><span>·</span><span>{labels[view.board.state]}</span><span className="boards-connection" role="status" title={connected ? '실시간 연결됨' : '연결 확인 중'}><i className={connected ? 'connected' : ''} /><span className="sr-only">{connected ? '실시간 연결됨' : '연결 확인 중'}</span></span>{view.board.moderation && <span>승인 후 공개</span>}{(view.submission_only || submission) && <span>나만의 제출</span>}</div>
-      <h1>{view.board.title}</h1>
+      <BoardTitle view={view} onSaved={accept} />
       {view.board.description && <p>{view.board.description}</p>}
     </header>
     {error && <Notice>{error}</Notice>}{!view.can_manage && view.principal.role === 'anonymous' && <p className="boards-participation-note"><ShieldCheck size={16} />익명으로 참여 중이에요. 내 글은 오늘 이 브라우저에서 수정할 수 있어요. 함께 쓰는 기기라면 마친 뒤 로그아웃해주세요.</p>}
