@@ -27,7 +27,7 @@ const postPatch = z.object({
 });
 function managed(access: Access) { if (!access.can_manage) fail(403, 'FORBIDDEN', '교사 편집 권한이 필요합니다.'); }
 function writable(access: Access) { if (!access.can_write) fail(403, access.board.state !== 'open' ? 'BOARD_CLOSED' : 'FORBIDDEN', '현재 이 활동에 작성할 수 없습니다.'); }
-function owner(p: Principal, board: Board) { if (board.owner_id !== p.id) fail(403, 'FORBIDDEN', '소유 교사만 할 수 있는 작업입니다.'); }
+function owner(p: Principal, board: Board) { if (board.owner_id !== p.id && p.role !== 'admin') fail(403, 'FORBIDDEN', '소유 교사 또는 학교 관리자만 할 수 있는 작업입니다.'); }
 function checkVersion(actual: number, expected: number) { if (actual !== expected) fail(409, 'CONFLICT', '다른 변경이 있습니다. 새로고침 후 다시 시도해주세요.'); }
 function key(req: Request, prefix: string) {
   const value = req.headers.get('idempotency-key');

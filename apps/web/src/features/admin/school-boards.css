@@ -1,0 +1,32 @@
+.school-boards{color:var(--ink);word-break:keep-all;overflow-wrap:anywhere}
+.school-boards-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.school-boards-heading h2{margin-bottom:8px}
+.school-boards-heading p{max-width:680px;font-size:.86rem}
+.school-boards-heading>.button{flex-shrink:0}
+.school-boards-filters{display:grid;grid-template-columns:minmax(180px,2fr) minmax(140px,1fr) minmax(150px,1.3fr) auto;gap:12px;align-items:end;margin:20px 0}
+.school-boards .input,.school-boards .select{border-color:var(--muted)}
+.school-boards .input::placeholder{color:var(--ink);opacity:.75}
+.school-boards .field,.school-boards .button.secondary{color:var(--ink)}
+.school-boards .button.secondary{border-color:var(--muted)}
+.school-boards .button.danger{border-color:currentColor}
+.school-boards .empty-state p,.school-boards .loading{color:var(--ink)}
+.school-boards :focus-visible{outline-color:var(--primary)}
+.school-boards-count{font-size:.82rem;margin:18px 0 8px}
+.school-boards-list{list-style:none;padding:0;margin:0}
+.school-boards-list>li{display:grid;grid-template-columns:minmax(160px,1.5fr) minmax(150px,1.2fr) minmax(150px,1.2fr) auto;gap:16px;align-items:center;padding:20px 0;border-top:1px solid var(--line)}
+.school-boards-name,.school-boards-owner,.school-boards-meta{display:grid;gap:4px;min-width:0}
+.school-boards-name strong{font-size:1rem}
+.school-boards-name span,.school-boards-owner,.school-boards-meta{font-size:.83rem}
+.school-boards-list small{font-size:.76rem}
+.school-boards-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.school-boards-more{display:flex;margin:16px auto 0}
+.school-boards-notice{padding:12px;border:1px solid var(--primary);border-radius:10px;background:var(--page)}
+.school-boards-dialog h3{margin-bottom:8px}
+.school-boards .boards-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.school-boards .boards-dialog-heading h2{margin:0}
+.school-boards-dialog p{font-size:.87rem}
+.school-boards-confirm{display:flex;gap:10px;align-items:flex-start;font-size:.86rem}
+.school-boards-confirm input{width:18px;height:18px;flex-shrink:0;margin-top:4px;accent-color:var(--primary)}
+@media(max-width:1000px){.school-boards-filters{grid-template-columns:1fr 1fr}.school-boards-filters>.field:first-child{grid-column:1/-1}.school-boards-list>li{grid-template-columns:1fr 1fr}.school-boards-actions{align-self:end}}
+@media(max-width:560px){.school-boards{padding:18px}.school-boards-heading{flex-direction:column;gap:0}.school-boards-filters{grid-template-columns:minmax(0,1fr)}.school-boards-filters>.field:first-child{grid-column:auto}.school-boards-list>li{grid-template-columns:minmax(0,1fr);gap:10px}.school-boards-actions{justify-content:flex-start}.school-boards .button{min-height:44px}.school-boards-dialog .school-boards-actions>.button{flex:1}}
+@media(prefers-reduced-motion:reduce){.school-boards .button{transition:none}.school-boards .button:hover{transform:none}}

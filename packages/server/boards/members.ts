@@ -16,14 +16,14 @@ async function members(db: Database, boardId: string, canEdit: boolean): Promise
     can_edit_members: canEdit,
   };
 }
-/** Locks the board, then requires an active owner (or, for self-removal, any member). */
+/** Locks and refreshes access; only the owner or school admin can manage memberships. */
 async function locked(tx: Database, actor: Principal, boardId: string) {
   await tx.one('SELECT id FROM boards WHERE id=$1 FOR UPDATE', [boardId]);
   const access = await boardAccess(tx, actor, boardId);
-  return { access, isOwner: access.can_manage && access.board.owner_id === actor.id };
+  return { access, canEditMembers: access.can_manage && (access.board.owner_id === actor.id || actor.role === 'admin') };
 }
 
-/** Co-teacher membership (owner manages, editors view) and the managers-only teacher activity feed. */
+/** Co-teacher membership (owner/admin manages, editors view) and the managers-only activity feed. */
 export async function handleMembers(req: Request, path: string[], actor: Principal, db: Database): Promise<Response | null> {
   const [, boardId, child] = path;
   if (path.length !== 3) return null;
@@ -36,13 +36,13 @@ export async function handleMembers(req: Request, path: string[], actor: Princip
   if (req.method === 'GET') {
     const access = await boardAccess(db, actor, boardId);
     if (!access.can_manage) fail(403, 'FORBIDDEN', '교사 편집 권한이 필요합니다.');
-    return json(await members(db, boardId, access.board.owner_id === actor.id));
+    return json(await members(db, boardId, access.board.owner_id === actor.id || actor.role === 'admin'));
   }
   if (req.method === 'POST') {
     const data = await input(req, z.object({ email: schoolEmail, role }));
     await db.transaction(async tx => {
-      const { access, isOwner } = await locked(tx, actor, boardId);
-      if (!isOwner) fail(403, 'FORBIDDEN', '소유 교사만 함께하는 선생님을 관리할 수 있습니다.');
+      const { access, canEditMembers } = await locked(tx, actor, boardId);
+      if (!canEditMembers) fail(403, 'FORBIDDEN', '소유 교사 또는 학교 관리자만 함께하는 선생님을 관리할 수 있습니다.');
       const teacher = await tx.one<Principal>("SELECT * FROM principals WHERE lower(email)=$1 AND role IN ('teacher','admin') AND disabled_at IS NULL", [data.email]);
       if (teacher?.id === access.board.owner_id) fail(400, 'INVALID_INPUT', '이미 소유 교사입니다.');
       // Teachers who have not signed in yet get a pending invite; it activates only if they sign in with a teacher role.
@@ -58,8 +58,8 @@ export async function handleMembers(req: Request, path: string[], actor: Princip
     const data = await input(req, z.union([z.object({ principal_id: z.string().min(1) }), z.object({ email: schoolEmail })]));
     const leaving = 'principal_id' in data && data.principal_id === actor.id;
     await db.transaction(async tx => {
-      const { isOwner } = await locked(tx, actor, boardId);
-      if (!isOwner && !leaving) fail(403, 'FORBIDDEN', '소유 교사만 함께하는 선생님을 관리할 수 있습니다.');
+      const { canEditMembers } = await locked(tx, actor, boardId);
+      if (!canEditMembers && !leaving) fail(403, 'FORBIDDEN', '소유 교사 또는 학교 관리자만 함께하는 선생님을 관리할 수 있습니다.');
       if ('principal_id' in data) {
         const removed = await tx.one('DELETE FROM board_members WHERE board_id=$1 AND principal_id=$2 RETURNING principal_id', [boardId, data.principal_id]);
         if (!removed) fail(404, 'NOT_FOUND', '함께하는 선생님을 찾을 수 없습니다.');

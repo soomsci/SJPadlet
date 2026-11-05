@@ -1,5 +1,5 @@
 import type { Board, Post, Principal, Share } from '@contracts';
-import type { Database } from '@db';
+import { id, now, type Database } from '@db';
 import { fail } from '@server/common/http';
 
 export interface BoardAccess {board:Board;can_manage:boolean;can_write:boolean;submission_only:boolean;shares:Share[];}
@@ -14,6 +14,14 @@ export async function canManage(db:Database,principal:Principal,board:Board):Pro
 /** Same as canManage for an already-refreshed principal row. */
 async function isManager(db:Database,current:Principal,board:Board):Promise<boolean>{
  if(current.disabled_at||!['teacher','admin'].includes(current.role))return false;
+ if(current.role==='admin'){
+  // Record school-wide intervention, without flooding the log on polling/SSE refetches.
+  if(board.owner_id!==current.id)await db.run(`INSERT INTO audit_events(id,actor_id,action,target_id,created_at,board_id)
+   SELECT $1,$2,'admin.board.access',$3,$4,$3 WHERE NOT EXISTS
+   (SELECT 1 FROM audit_events WHERE actor_id=$2 AND board_id=$3 AND action='admin.board.access' AND created_at>$5)`,
+   [id(),current.id,board.id,now(),new Date(Date.now()-600000).toISOString()]);
+  return true;
+ }
  if(board.owner_id===current.id)return true;
  return Boolean(await db.one('SELECT 1 FROM board_members WHERE board_id=$1 AND principal_id=$2 AND role=$3',[board.id,current.id,'editor']));
 }

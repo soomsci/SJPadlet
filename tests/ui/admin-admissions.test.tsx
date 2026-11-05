@@ -7,6 +7,7 @@ vi.mock('@features/operations',()=>({OperationsPanel:()=>null}));
 vi.mock('@ui',async importOriginal=>({...await importOriginal<object>(),api:apiMock}));
 beforeEach(()=>{apiMock.mockReset();apiMock.mockImplementation(async(path:string,options?:RequestInit)=>{
  if(path==='/api/admin/summary')return {boards:0,teachers:1,posts:0,bytes:'0'};
+ if(path.startsWith('/api/admin/boards?'))return {boards:[],next_cursor:null};
  if(path==='/api/admin/admissions'&&!options)return [{email:'allowed@samjeong.ms.kr',enabled:true,created_by:'test-admin',created_at:'2026-10-12T00:00:00.000Z'}];
  if(path==='/api/admin/admissions'&&options?.method==='PUT')return JSON.parse(options.body as string);
  return [];

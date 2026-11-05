@@ -50,6 +50,8 @@ Google 로그인의 승인된 리디렉션은 `<APP_URL>/api/auth/google/callbac
 
 교사 홈·검색·즐겨찾기·휴지통, 벽/격자/열·섹션, 글·댓글·좋아요·승인·차단, 대상별 QR·코드·만료·회수, CSV·인쇄/PDF, 관리자 기능이 구현되어 있다. 전체 Padlet 기능 대응은 P1~P3 후속 작업을 포함한다.
 
+학교 관리자는 **학교 관리 → 전체 게시판**에서 게시판·교사 검색과 상태 필터를 사용할 수 있다. `열기`는 해당 게시판의 글·공유·설정을 관리하고, `관리`는 참여 종료·다시 열기·보관·휴지통 이동/복원·소유권 이전을 제공한다. 다른 교사의 게시판 접근과 관리 작업은 운영 기록에 남는다.
+
 `npm run check`는 웹/Worker 타입 검사·린트·테스트·정적 빌드·Worker dry-run·workerd 실행 검증을 실행한다. `cf:smoke`는 생성된 Worker의 상태 API·정적 경로·업로드 제한·교차 출처 차단을 포트 없이 확인한다. 실제 Supabase·Google·Cloudflare 계정 연결과 브라우저/학교망 검증을 대체하지 않는다. DB 백업은 `npm run db:backup`, 복원은 `npm run db:restore -- <backup.json> --confirm-replace`이며 이미지 원본은 별도 백업한다.
 
 - [PRD](docs/PRD.md)

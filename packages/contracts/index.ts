@@ -4,6 +4,8 @@ export interface Principal { id:string; role:Role; display_name:string; email:st
 export type BoardFormat = 'wall'|'grid'|'columns';
 export type BoardState = 'draft'|'open'|'closed'|'archived';
 export interface Board { id:string; owner_id:string; title:string; description:string; format:BoardFormat; state:BoardState; participation_mode:'both'|'login'; moderation:boolean; allow_comments:boolean; allow_reactions:boolean; anonymous_display:boolean; color:string; column_width?:number; font_scale?:'small'|'normal'|'large'; card_density?:'comfortable'|'compact'; background_style?:'solid'|'gradient'|'paper'; version:number; deleted_at:string|null; created_at:string; updated_at:string; }
+export interface AdminBoard extends Pick<Board,'id'|'owner_id'|'title'|'format'|'state'|'version'|'deleted_at'|'updated_at'> { owner_name:string; owner_email:string|null; owner_disabled_at:string|null; post_count:number; pending_count:number; }
+export interface AdminBoardList { boards:AdminBoard[]; next_cursor:string|null; }
 export interface Section { id:string; board_id:string; title:string; rank:number; deleted_at?:string|null; }
 export type PostStatus = 'pending'|'published'|'rejected'|'hidden'|'deleted';
 export interface Post { id:string; board_id:string; section_id:string|null; author_id:string; title:string; body:string; link:string|null; status:PostStatus; color:string; rank:number; version:number; created_at:string; updated_at:string; }

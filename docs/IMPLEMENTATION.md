@@ -70,7 +70,7 @@ P1 그룹·투표, P2 카드·오브젝트, P3 게임·응답은 별도 마이�
 |`GET /api/attachments/:id/content`|매 요청 권한 확인 후 파일 전달|
 |`GET /api/boards/:id/events`|허용 범위 SSE 연결|
 |`POST /api/boards/:id/exports`, `GET /api/jobs/:id`|내보내기·작업 상태|
-|`/api/admin/*`|교사 관리·사용량·소유권 이전·감사 로그|
+|`/api/admin/*`|교사 관리·사용량·전체 게시판 목록·소유권 이전·감사 로그|
 
 응답은 `{data, meta}` 또는 `{error:{code,message,requestId}}`로 통일한다. 공통 오류는 `AUTH_REQUIRED`, `FORBIDDEN`, `NOT_FOUND`, `SHARE_EXPIRED`, `BOARD_CLOSED`, `CONFLICT`, `RATE_LIMITED`, `UPLOAD_REJECTED`다. 존재 자체가 비공개인 대상은 NOT_FOUND로 처리한다. 목록은 커서 페이지네이션, 쓰기는 서버 검증 스키마·길이 제한·멱등 키, 수정은 version 낙관적 잠금을 사용한다. 충돌 시 409와 재조회 안내를 반환한다.
 
@@ -130,3 +130,12 @@ PR 필수 검사는 타입 검사·린트·관련 단위 및 API 테스트·빌�
 게시판 공통 Dialog는 마운트 시 한 번 입력 필드에 초점을 설정하고, 입력/실시간 갱신으로 새 onClose 함수가 전달돼도 초점을 재설정하지 않는다. effect의 키보드 리스너는 useEffectEvent로 최신 닫기 동작을 호출한다. 한글 조합 Escape, Tab 경계, 닫은 뒤 원래 버튼의 초점 복원을 테스트한다. 초안·발표·섹션 삭제 등 후속 요구는 별도 저장·권한·충돌 계약 후 구현한다.
 
 게시판에서만 BoardChrome 도구 모음을 사용하고 기존 사이트 헤더는 숨긴다. 관리자 링크는 BoardView principal.role=admin일 때 계정 메뉴에서 제공하며 서버 권한 검사를 유지한다. 설정/작성 Dialog variant는 화면 배치만 바꾸며 서버 저장과 업로드 정책은 유지한다. 교사 홈은 분류 사이드바·검색·목록·만들기 중심으로 구성한다. 정적 release.json은 릴리스 확인용이며 프론트엔드 반영 확인과 Worker 배포 시각을 별도로 검증한다.
+
+## 10. 관리자 전체 게시판 관리 (2026-11-05)
+
+- `GET /api/admin/boards?q=&state=all&owner=&cursor=`: 활성 관리자만 호출. 상태는 `all/draft/open/closed/archived/trash`, 기본은 휴지통 제외. 제목·소유 교사 이름·이메일을 문자 그대로 부분 검색한다. 최근 수정 시각·ID 역순의 50개 cursor pagination, 게시글/승인 대기 수만 반환하며 글 본문·답안·첨부 내용은 목록에 포함하지 않는다.
+- 공통 `canManage/boardAccess`에서 DB의 최신 역할이 `admin`인 활성 계정에 전체 관리 권한을 부여한다. 게시글·댓글·파일·공유/QR·CSV·실시간도 이 공통 검사에 연결된다. 다른 교사의 게시판 접근 시 기존 audit 테이블에 `admin.board.access`를 10분 단위로 기록한다. 역할 강등·정지·위조된 Principal은 허용하지 않는다.
+- 상태 변경·휴지통·복원·공동 교사 관리는 기존 `/api/boards/:id` 계열 API를 사용한다. 소유 교사 전용인 휴지통·복원·공동 교사 관리는 활성 학교 관리자도 수행할 수 있다. 일반 편집자는 소유권 작업을 수행할 수 없다.
+- `POST /api/admin/transfer`는 `{board_id,owner_id,version}`을 필수로 받는다. 게시판과 대상 교사 잠금 후 최신 버전·활성 교사 여부·휴지통 여부를 확인한다. 새 소유자의 중복 공동 교사 행 제거, `board.transfer` 감사 기록과 `permissions` outbox를 같은 트랜잭션에 반영한다.
+- 학교 관리의 수동 게시판 ID 입력 폼을 전체 게시판 선택 관리 창으로 대체한다. 휴지통 이동·소유권 이전은 대상과 결과를 확인한 뒤 적용하며 중복 제출을 막는다. 충돌 시 관리 창에 오류와 최신 목록 조회를 제공한다.
+- DB 스키마·의존성 변경 없음. Cloudflare/Node 공통 서버 구현을 사용한다.
